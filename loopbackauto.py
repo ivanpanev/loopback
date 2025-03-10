@@ -57,7 +57,7 @@ def check_ha_state(ip, api_key):
         print(f"Failed to query HA state from {ip}. Status code: {response.status_code}")
         return "unknown"
 
-def create_mgmt_profile(ip, api_key, profile_name):
+def create_mgmt_profile(ip, api_key, profile_name, whitelisted_jh_ip):
     url = f"https://{ip}/restapi/v10.1/Network/InterfaceManagementNetworkProfiles?name={profile_name}"
     headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
     payload = {
@@ -65,7 +65,13 @@ def create_mgmt_profile(ip, api_key, profile_name):
             "@name": profile_name,
             "https": "yes",
             "ping": "yes",
-            "ssh": "yes"
+            "permitted-ip": {
+                "entry": [
+                    {
+                        "@name": f"{whitelisted_jh_ip}"
+                    }
+                ]
+            }
         }
     }
     response = requests.post(url, headers=headers, json=payload, verify=False)
@@ -116,7 +122,7 @@ def commit_changes(ip, api_key):
     response = requests.post(url, headers=headers, verify=False)
     return response.status_code == 200
 
-def configure_device(ip, username, password, subnet, zone_name, profile_name):
+def configure_device(ip, username, password, subnet, zone_name, profile_name, whitelisted_jh_ip):
     api_key = get_api_key(ip, username, password)
     if not api_key:
         return ip, "Failed to get API key"
@@ -127,7 +133,7 @@ def configure_device(ip, username, password, subnet, zone_name, profile_name):
     elif ha_state == "unknown":
         return ip, "Skipped (Unknown HA state)"
     
-    if not create_mgmt_profile(ip, api_key, profile_name):
+    if not create_mgmt_profile(ip, api_key, profile_name, whitelisted_jh_ip):
         return ip, "Failed to create management profile"
 
     # Find next available loopback interface and IP
@@ -147,6 +153,7 @@ def configure_device(ip, username, password, subnet, zone_name, profile_name):
     return ip, "Success"
 
 def main():
+    whitelisted_jh_ip = '192.168.117.150'
     username = input("Enter username: ")
     password = getpass("Enter password: ")
     
@@ -169,7 +176,7 @@ def main():
     failed_devices = []
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(configure_device, ip, username, password, subnet, zone_name, profile_name): ip for ip in devices}
+        futures = {executor.submit(configure_device, ip, username, password, subnet, zone_name, profile_name, whitelisted_jh_ip): ip for ip in devices}
         for future in concurrent.futures.as_completed(futures):
             ip, result = future.result()
             if result == "Success":
