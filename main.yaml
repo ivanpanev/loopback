@@ -1,0 +1,15 @@
+---
+- name: Print payload variables
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Default or placeholder date (will be overridden by extra vars from API call)
+    custom_date: "No date passed"
+  tasks:
+    - name: Show the custom date
+      debug:
+        msg: "Custom date from payload is: {{ custom_date }}"
+
+    - name: Show all extra vars
+      debug:
+        var: hostvars[inventory_hostname]
