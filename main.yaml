@@ -13,3 +13,6 @@
     - name: Show all extra vars
       debug:
         var: hostvars[inventory_hostname]
+
+
+POST /api/v2/job_templates/<JOB_TEMPLATE_ID>/launch/
