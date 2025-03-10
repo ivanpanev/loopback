@@ -170,7 +170,7 @@ def main():
         devices.append(ip)
     
     zone_name = "CUST-MGMT"
-    profile_name = "MGMT-PROFILE"
+    profile_name = "CUST-MGMT-PROFILE"
     
     successful_devices = []
     failed_devices = []
