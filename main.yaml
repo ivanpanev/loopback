@@ -16,3 +16,39 @@
 
 
 POST /api/v2/job_templates/<JOB_TEMPLATE_ID>/launch/
+
+
+
+// Example endpoint, adjust host/IP/port according to your AWX setup
+const awxUrl = 'https://awx.example.com/api/v2/job_templates/42/launch/';
+
+// This token is from the AWX user tokens section
+const awxToken = 'YOUR_AWX_API_TOKEN';
+
+// The data we want to pass to the AWX job
+const payload = {
+  extra_vars: {
+    custom_date: "2025-03-10 from JavaScript API call"
+  }
+};
+
+fetch(awxUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${awxToken}`
+  },
+  body: JSON.stringify(payload)
+})
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`Error launching job: ${response.status} - ${response.statusText}`);
+    }
+    return response.json();
+  })
+  .then(data => {
+    console.log('Job launched successfully:', data);
+  })
+  .catch(error => {
+    console.error('Error:', error);
+  });
