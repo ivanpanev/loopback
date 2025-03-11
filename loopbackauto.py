@@ -43,7 +43,7 @@ def check_ha_state(ip, api_key):
             
             # Get the local HA state
             local_state = root.find(".//local-info/state").text
-            if local_state == "active":
+            if local_state == "active" or local_state == "active-primary":
                 return "active"  # Device is active in HA pair
             elif local_state == "passive":
                 return "passive"  # Device is passive in HA pair
@@ -58,7 +58,7 @@ def check_ha_state(ip, api_key):
         return "unknown"
 
 def create_mgmt_profile(ip, api_key, profile_name, whitelisted_jh_ip):
-    url = f"https://{ip}/restapi/v10.1/Network/InterfaceManagementNetworkProfiles?name={profile_name}"
+    url = f"https://{ip}/restapi/v10.2/Network/InterfaceManagementNetworkProfiles?name={profile_name}"
     headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
     payload = {
         "entry": {
@@ -79,7 +79,7 @@ def create_mgmt_profile(ip, api_key, profile_name, whitelisted_jh_ip):
     return response.status_code == 200
 
 def create_loopback(ip, api_key, loopback_name, ip_address, profile_name):
-    url = f"https://{ip}/restapi/v10.1/Network/LoopbackInterfaces?name={loopback_name}"
+    url = f"https://{ip}/restapi/v10.2/Network/LoopbackInterfaces?name={loopback_name}"
     headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
     payload = {
         "entry": {
@@ -98,7 +98,7 @@ def create_loopback(ip, api_key, loopback_name, ip_address, profile_name):
     return response.status_code == 200
 
 def create_zone(ip, api_key, zone_name, loopback_name):
-    url = f"https://{ip}/restapi/v10.1/Network/Zones?location=vsys&vsys=vsys1&name={zone_name}"
+    url = f"https://{ip}/restapi/v10.2/Network/Zones?location=vsys&vsys=vsys1&name={zone_name}"
     headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
     payload = {
         "entry": {
