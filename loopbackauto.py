@@ -2,7 +2,7 @@ import requests
 import json
 import concurrent.futures
 from getpass import getpass
-from ipaddress import ip_network, ip_address
+from ipaddress import ip_network, ip_address, ip_interface
 import xml.etree.ElementTree as ET
 
 # Disable SSL warnings (not recommended for production)
@@ -33,11 +33,9 @@ def check_ha_state(ip, api_key):
             elif local_state == "passive":
                 return "passive"
             return "unknown"
-        except Exception as e:
-            print(f"Error parsing HA state response from {ip}: {e}")
+        except Exception:
             return "unknown"
     else:
-        print(f"Failed to query HA state from {ip}. Status code: {resp.status_code}")
         return "unknown"
 
 def get_os_version(ip, api_key):
@@ -51,373 +49,247 @@ def get_os_version(ip, api_key):
             version_parts = full_version.split(".")
             major_minor = ".".join(version_parts[:2])  # e.g. "10.2"
             return major_minor
-        except Exception as e:
-            print(f"Error retrieving OS version: {e}")
+        except Exception:
             return "10.2"
     else:
-        print(f"Failed to retrieve OS version from {ip}. Status code: {resp.status_code}")
         return "10.2"
 
-def create_mgmt_profile(ip, api_key, os_version, profile_name, whitelisted_jh_ip):
+def get_loopback_interface(ip, api_key, os_version, loopback_name="loopback.109"):
     """
-    Create/Update an Interface Management Profile named 'profile_name' that allows ping/https
-    and whitelists 'whitelisted_jh_ip'.
+    Retrieves the 'loopback.109' interface config. Returns a dict or None if not found.
     """
-    url = f"https://{ip}/restapi/v{os_version}/Network/InterfaceManagementNetworkProfiles?name={profile_name}"
-    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
-    payload = {
-        "entry": {
-            "@name": profile_name,
-            "https": "yes",
-            "ping": "yes",
-            "permitted-ip": {
-                "entry": [
-                    {"@name": str(whitelisted_jh_ip)}
-                ]
-            }
-        }
-    }
-    resp = requests.post(url, headers=headers, json=payload, verify=False)
-    if resp.status_code == 200:
-        return True
-    print(f"Failed to create mgmt profile on {ip}, status: {resp.status_code}, response: {resp.text}")
-    return False
-
-def create_loopback(ip, api_key, os_version, loopback_name, loopback_ip_cidr, profile_name):
-    """
-    Create the loopback interface (without assigning it to a zone).
-    loopback_ip_cidr should be e.g. '10.10.10.10/32'.
-    """
-    # Some PAN-OS versions need a base "loopback" node
-    try:
-        url_init = f"https://{ip}/restapi/v{os_version}/Network/LoopbackInterfaces?name=loopback"
-        headers_init = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
-        _ = requests.post(url_init, headers=headers_init, json={"entry": {}}, verify=False)
-    except Exception as e:
-        print(f"Ignoring exception creating base 'loopback' node: {e}")
-
-    # Now POST the actual loopback interface
     url = f"https://{ip}/restapi/v{os_version}/Network/LoopbackInterfaces?name={loopback_name}"
     headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
-    payload = {
-        "entry": {
-            "@name": loopback_name,
-            "ip": {
-                "entry": [
-                    {"@name": loopback_ip_cidr}
-                ]
-            },
-            "interface-management-profile": profile_name
-        }
-    }
-    resp = requests.post(url, headers=headers, json=payload, verify=False)
-    if resp.status_code == 200:
-        return True
-
-    print(f"Failed to create loopback '{loopback_name}' on {ip}, status: {resp.status_code}, response: {resp.text}")
-    return False
-
-def update_zone_with_loopback(ip, api_key, os_version, zone_name, loopback_name):
-    """
-    Fetch the zone object, add 'loopback_name' to its member list, and PUT it back.
-    """
-    base_url = f"https://{ip}/restapi/v{os_version}/Network/Zones?location=vsys&vsys=vsys1&name={zone_name}"
-    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
-
-    # 1. Retrieve the zone definition
-    get_resp = requests.get(base_url, headers=headers, verify=False)
-    if get_resp.status_code != 200:
-        print(
-            f"Failed to retrieve zone '{zone_name}' info from {ip}, "
-            f"status: {get_resp.status_code}, resp: {get_resp.text}"
-        )
-        return False
+    resp = requests.get(url, headers=headers, verify=False)
+    if resp.status_code != 200:
+        return None
 
     try:
-        zone_data = get_resp.json()
-        entry = zone_data["result"]["entry"]
-        if not isinstance(entry, dict):
-            # If multiple, pick the first
-            entry = entry[0]
-
-        # 2. Current list of layer3 members
-        layer3_members = entry.get("network", {}).get("layer3", {}).get("member", [])
-        if isinstance(layer3_members, str):
-            layer3_members = [layer3_members]
-
-        # 3. Add the new loopback if not already present
-        if loopback_name not in layer3_members:
-            layer3_members.append(loopback_name)
-
-        # 4. Build the updated zone definition
-        updated_entry = {
-            "@name": zone_name,
-            "@location": "vsys",
-            "network": {
-                "layer3": {
-                    "member": layer3_members
-                }
-            }
-        }
-
-        # 5. PUT the updated zone
-        put_resp = requests.put(base_url, headers=headers, json={"entry": updated_entry}, verify=False)
-        if put_resp.status_code == 200:
-            return True
-        else:
-            print(
-                f"Failed to update zone '{zone_name}' on {ip}, "
-                f"status: {put_resp.status_code}, resp: {put_resp.text}"
-            )
-            return False
-
-    except Exception as e:
-        print(f"Error updating zone '{zone_name}' on {ip}: {e}")
-        return False
-
-def update_default_vr_with_interface(ip, api_key, os_version, interface_name):
-    """
-    Adds 'interface_name' (e.g. 'loopback.109') to the 'default' virtual router.
-    """
-    base_url = f"https://{ip}/restapi/v{os_version}/Network/VirtualRouters?name=default"
-    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
-
-    # 1. GET the default VR
-    get_resp = requests.get(base_url, headers=headers, verify=False)
-    if get_resp.status_code != 200:
-        print(
-            f"Failed to retrieve default VR on {ip}, status: {get_resp.status_code}, "
-            f"resp: {get_resp.text}"
-        )
-        return False
-
-    try:
-        vr_data = get_resp.json()
-        entry = vr_data["result"]["entry"]
+        data = resp.json()
+        entry = data["result"]["entry"]
+        # If there's a list of entries, pick the first
         if isinstance(entry, list):
             entry = entry[0]
+        return entry
+    except Exception:
+        return None
 
-        # 2. Current list of interfaces
-        vr_interfaces = entry.get("interface", {}).get("member", [])
-        if isinstance(vr_interfaces, str):
-            vr_interfaces = [vr_interfaces]
-
-        if interface_name not in vr_interfaces:
-            vr_interfaces.append(interface_name)
-
-        # 3. Build updated VR definition
-        updated_entry = {
-            "@name": "default",
-            "interface": {
-                "member": vr_interfaces
-            }
-        }
-        # Preserve other keys from 'entry'
-        for key, val in entry.items():
-            if key not in ["interface"]:
-                updated_entry[key] = val
-
-        # 4. PUT the updated VR
-        put_resp = requests.put(base_url, headers=headers, json={"entry": updated_entry}, verify=False)
-        if put_resp.status_code == 200:
-            return True
-
-        print(
-            f"Failed to update default VR on {ip}, status: {put_resp.status_code}, "
-            f"resp: {put_resp.text}"
-        )
-        return False
-
-    except Exception as e:
-        print(f"Error updating default VR on {ip}: {e}")
-        return False
-
-#
-# UPDATED FUNCTION: BGP redist rule creation using the EXACT payload structure you specified.
-#
-
-def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default"):
+def update_loopback_interface(ip, api_key, os_version, loopback_name, new_ip):
     """
-    Safely adds or updates a BGP 'redist-rules' entry named `loopback_cidr` in the given VR,
-    preserving the rest of the existing VR configuration, and dynamically referencing router-id.
+    Overwrites the loopback's IP list with the single new_ip/32 entry.
+    new_ip is a string like '10.10.10.5/32'.
+    """
+    url = f"https://{ip}/restapi/v{os_version}/Network/LoopbackInterfaces?name={loopback_name}"
+    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
+
+    # 1) Get the existing definition
+    existing_entry = get_loopback_interface(ip, api_key, os_version, loopback_name)
+    if not existing_entry:
+        print(f"[{ip}] Loopback {loopback_name} not found or could not be fetched.")
+        return False
+
+    # 2) Overwrite the 'ip' list with our single new IP
+    existing_entry["ip"] = {
+        "entry": [
+            {"@name": new_ip}
+        ]
+    }
+
+    # 3) PUT the updated interface
+    put_resp = requests.put(url, headers=headers, json={"entry": existing_entry}, verify=False)
+    if put_resp.status_code == 200:
+        print(f"[{ip}] Successfully updated {loopback_name} to {new_ip}.")
+        return True
+    else:
+        print(f"[{ip}] Failed to update loopback {loopback_name}. Status: {put_resp.status_code}, Resp: {put_resp.text}")
+        return False
+
+def get_virtual_router(ip, api_key, os_version, vr_name="default"):
+    """
+    Retrieves the VR named 'default' and returns its 'entry' dict (or None if failed).
     """
     url = f"https://{ip}/restapi/v{os_version}/Network/VirtualRouters?name={vr_name}"
-    headers = {
-        "X-PAN-KEY": api_key,
-        "Content-Type": "application/json"
-    }
-
-    # 1) GET the existing VR config
-    get_resp = requests.get(url, headers=headers, verify=False)
-    if get_resp.status_code != 200:
-        print(f"[{ip}] Failed to retrieve VR '{vr_name}' (GET). "
-              f"Status: {get_resp.status_code}, Resp: {get_resp.text}")
-        return False
-
+    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
+    resp = requests.get(url, headers=headers, verify=False)
+    if resp.status_code != 200:
+        return None
     try:
-        vr_data = get_resp.json()
+        vr_data = resp.json()
         entry = vr_data["result"]["entry"]
-        # If the response has multiple VR entries, pick the first one:
         if isinstance(entry, list):
             entry = entry[0]
+        return entry
+    except Exception:
+        return None
 
-        # 2) Ensure the structure for BGP and redist-rules exists
-        if "protocol" not in entry:
-            entry["protocol"] = {}
-        if "bgp" not in entry["protocol"]:
-            entry["protocol"]["bgp"] = {}
-        if "redist-rules" not in entry["protocol"]["bgp"]:
-            entry["protocol"]["bgp"]["redist-rules"] = {"entry": []}
-        if "entry" not in entry["protocol"]["bgp"]["redist-rules"]:
-            entry["protocol"]["bgp"]["redist-rules"]["entry"] = []
+def update_virtual_router(ip, api_key, os_version, vr_name, updated_entry):
+    """
+    Issues a PUT to overwrite the VR entry with 'updated_entry'.
+    """
+    url = f"https://{ip}/restapi/v{os_version}/Network/VirtualRouters?name={vr_name}"
+    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
+    resp = requests.put(url, headers=headers, json={"entry": updated_entry}, verify=False)
+    return resp
 
-        # 3) Dynamically get or set the router-id
-        bgp_block = entry["protocol"]["bgp"]
-        existing_router_id = bgp_block.get("router-id")
-        if not existing_router_id:
-            # Example: if no router-id is set, use the loopback interface IP
-            ip_obj = ip_interface(loopback_cidr)
-            new_router_id = str(ip_obj.ip)
-            bgp_block["router-id"] = new_router_id
-            print(f"[{ip}] No router-id set, using {new_router_id} as router-id.")
+def update_bgp_redist_rule(ip, api_key, os_version, old_ip, new_ip, vr_name="default"):
+    """
+    In the given VR, find the BGP redist-rule with @name == old_ip/32, and rename/update it to new_ip/32.
+    If none found, do nothing.
 
-        # 4) Add or update the redist rule
-        redist_list = bgp_block["redist-rules"]["entry"]
-        existing_rule = None
-        for rule in redist_list:
-            if rule.get("@name") == loopback_cidr:
-                existing_rule = rule
-                break
+    NOTE: We preserve other VR config. 
+    """
+    vr_entry = get_virtual_router(ip, api_key, os_version, vr_name=vr_name)
+    if not vr_entry:
+        print(f"[{ip}] Could not fetch VR '{vr_name}'. Cannot update redist rule.")
+        return False
 
-        if existing_rule:
-            existing_rule["address-family-identifier"] = "ipv4"
-        else:
-            redist_list.append({
-                "@name": loopback_cidr,
-                "address-family-identifier": "ipv4"
-            })
+    # Navigate to BGP redist-rules
+    bgp = vr_entry.setdefault("protocol", {}).setdefault("bgp", {})
+    redist_rules = bgp.setdefault("redist-rules", {}).setdefault("entry", [])
 
-        # 5) PUT the updated VR config back
-        put_resp = requests.put(url, headers=headers, json={"entry": entry}, verify=False)
-        if put_resp.status_code == 200:
-            print(f"[{ip}] Successfully updated BGP redist-rules and router-id in VR '{vr_name}'.")
-            return True
-        else:
-            print(f"[{ip}] Failed to update VR '{vr_name}' (PUT). "
-                  f"Status: {put_resp.status_code}, Resp: {put_resp.text}")
-            return False
+    found = False
+    for rule in redist_rules:
+        if rule.get("@name") == f"{old_ip}/32":
+            # Update the rule name and address-family-identifier
+            rule["@name"] = f"{new_ip}/32"
+            rule["address-family-identifier"] = "ipv4"
+            found = True
+            break
 
-    except Exception as e:
-        print(f"[{ip}] Exception while adding BGP redist rule: {str(e)}")
+    if not found:
+        # If you do want to add a rule if old wasn't found, uncomment:
+        # redist_rules.append({
+        #     "@name": f"{new_ip}/32",
+        #     "address-family-identifier": "ipv4"
+        # })
+        print(f"[{ip}] BGP redist rule '{old_ip}/32' not found, skipping update.")
+        return True  # Not an error, just skip
+
+    # Now we PUT the entire VR back
+    put_resp = update_virtual_router(ip, api_key, os_version, vr_name, vr_entry)
+    if put_resp.status_code == 200:
+        print(f"[{ip}] Updated BGP redist rule: {old_ip}/32 -> {new_ip}/32 in VR '{vr_name}'.")
+        return True
+    else:
+        print(f"[{ip}] Failed to update VR '{vr_name}'. Status: {put_resp.status_code}, Resp: {put_resp.text}")
         return False
 
 def commit_changes(ip, api_key):
     """
-    Commit the changes using the XML API
+    Commit the changes using the XML API (uncomment if you want an immediate commit).
     """
     url = f"https://{ip}/api/?type=commit&cmd=<commit></commit>"
     headers = {"X-PAN-KEY": api_key}
     resp = requests.post(url, headers=headers, verify=False)
     return resp.status_code == 200
 
-def configure_device(ip, username, password, subnet, profile_name, whitelisted_jh_ip):
+def process_device(ip, username, password, new_ip):
     """
-    Configure a single device:
-      1. Create mgmt profile
-      2. Create loopback.109 with /32 mask from the second IP in 'subnet'
-      3. Add loopback.109 to 'default' VR
-      4. Create BGP 'redit-rules' entry with @name=the loopback /32
-      5. Add loopback.109 to zone 'Untrust-L3'
-      6. Commit
+    1. Check if device is passive HA
+    2. If loopback.109 has IP 172.30.254.2/32, rename it to new_ip/32
+    3. If a BGP redist rule is found with @name=172.30.254.2/32, rename to new_ip/32
+    4. Commit changes (optional)
     """
     api_key = get_api_key(ip, username, password)
     if not api_key:
-        return ip, "Failed to get API key"
-    
-    ha_state = check_ha_state(ip, api_key)
-    if ha_state == "passive":
-        return ip, "Skipped (Passive HA device)"
-    elif ha_state == "unknown":
-        return ip, "Skipped (Unknown HA state)"
+        return ip, f"Failed to get API key"
+
+    state = check_ha_state(ip, api_key)
+    if state == "passive":
+        return ip, "Skipped (Passive HA)"
+    elif state == "unknown":
+        return ip, "Skipped (Unknown HA State)"
 
     os_version = get_os_version(ip, api_key)
 
-    # 1. Mgmt Profile
-    if not create_mgmt_profile(ip, api_key, os_version, profile_name, whitelisted_jh_ip):
-        return ip, "Failed to create mgmt profile"
-    
-    # 2. Loopback
-    loopback_name = "loopback.109"
-    ip_with_cidr = f"{str(subnet[1])}/32"
-    if not create_loopback(ip, api_key, os_version, loopback_name, ip_with_cidr, profile_name):
-        return ip, "Failed to create loopback interface"
+    # 1) Check if loopback.109 is assigned 172.30.254.2/32
+    loopback_entry = get_loopback_interface(ip, api_key, os_version, "loopback.109")
+    if not loopback_entry:
+        return ip, "No loopback.109 found"
 
-    # 3. VR
-    if not update_default_vr_with_interface(ip, api_key, os_version, loopback_name):
-        return ip, "Failed to add loopback to default VR"
+    ip_list = loopback_entry.get("ip", {}).get("entry", [])
+    if not isinstance(ip_list, list):
+        ip_list = [ip_list]
 
-    # 4. BGP redit-rule (with EXACT schema you demanded)
-    if not add_bgp_redist_rule(ip, api_key, os_version, ip_with_cidr, vr_name="default"):
-        return ip, "Failed to add BGP redit-rule"
+    # We look for 172.30.254.2/32
+    found_old_ip = any(i.get("@name") == "172.30.254.2/32" for i in ip_list)
+    if not found_old_ip:
+        return ip, "No old IP found (172.30.254.2/32), skipping"
 
-    # 5. Zone
-    if not update_zone_with_loopback(ip, api_key, os_version, "Untrust-L3", loopback_name):
-        return ip, "Failed to update zone with loopback"
+    new_ip_cidr = f"{new_ip}/32"
 
-    # # 6. Commit
+    # 2) Update loopback.109 to use the new IP
+    if not update_loopback_interface(ip, api_key, os_version, "loopback.109", new_ip_cidr):
+        return ip, "Failed updating loopback"
+
+    # 3) Update BGP redist rule: rename old 172.30.254.2/32 => new_ip/32
+    if not update_bgp_redist_rule(ip, api_key, os_version, "172.30.254.2", new_ip, vr_name="default"):
+        return ip, "Failed updating BGP redist rule"
+
+    # 4) Commit (optional – uncomment to do an immediate commit on each device)
     # if not commit_changes(ip, api_key):
-    #     return ip, "Failed to commit changes"
-    
+    #     return ip, "Commit failed"
+
     return ip, "Success"
 
 def main():
-    whitelisted_jh_ip = '192.168.117.150'
-    username = input("Enter username: ")
-    password = getpass("Enter password: ")
-    
-    print("Enter available /24 subnet (e.g., 192.168.1.0/24):")
+    username = input("Enter username: ").strip()
+    password = getpass("Enter password: ").strip()
+
+    # Input a larger /24 or /25 or /whatever for your unique IP addresses
+    print("Enter an available subnet (e.g. 10.10.10.0/24):")
     subnet_input = input().strip()
-    subnet = list(ip_network(subnet_input).hosts())
-    
-    print("Enter management IP addresses of devices (one per line, end with 'end'):")
+    subnet_hosts = list(ip_network(subnet_input).hosts())
+
+    print("Enter firewall management IPs, one per line. Type 'end' to finish.")
     devices = []
     while True:
-        ipaddr = input().strip()
-        if ipaddr.lower() == "end":
+        line = input().strip()
+        if line.lower() == "end":
             break
-        devices.append(ipaddr)
-    
-    profile_name = "CUST-MGMT-PROFILE"
+        devices.append(line)
 
-    successful_devices = []
-    failed_devices = []
-    
+    # We'll just assign unique IPs from the start of the subnet
+    # (Make sure you have at least as many hosts as devices)
+    if len(devices) > len(subnet_hosts):
+        print("ERROR: Not enough IP addresses in the subnet for all devices!")
+        return
+
+    # Map each device to a unique IP
+    device_to_ip = {}
+    for i, dev in enumerate(devices):
+        device_to_ip[dev] = str(subnet_hosts[i])
+
+    # Now run the updates in parallel
+    success_list = []
+    fail_list = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_map = {
-            executor.submit(
-                configure_device,
-                ipaddr,
+        future_map = {}
+        for dev in devices:
+            future = executor.submit(
+                process_device,
+                dev,
                 username,
                 password,
-                subnet,
-                profile_name,
-                whitelisted_jh_ip
-            ): ipaddr for ipaddr in devices
-        }
+                device_to_ip[dev]
+            )
+            future_map[future] = dev
+
         for fut in concurrent.futures.as_completed(future_map):
-            ip_result, result_reason = fut.result()
-            if result_reason == "Success":
-                successful_devices.append(ip_result)
+            dev_ip, result_msg = fut.result()
+            if result_msg == "Success":
+                success_list.append(dev_ip)
             else:
-                failed_devices.append((ip_result, result_reason))
-    
-    print("\nSuccessful devices:")
-    for ipaddr in successful_devices:
-        print(ipaddr)
-    
+                fail_list.append((dev_ip, result_msg))
+
+    print("\n=== Results ===")
+    print("Successful devices:")
+    for d in success_list:
+        print("  ", d)
+
     print("\nFailed devices:")
-    for ipaddr, reason in failed_devices:
-        print(f"{ipaddr}: {reason}")
+    for d, msg in fail_list:
+        print(f"  {d}: {msg}")
 
 if __name__ == "__main__":
     main()
