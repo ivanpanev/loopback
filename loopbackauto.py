@@ -239,16 +239,19 @@ def update_default_vr_with_interface(ip, api_key, os_version, interface_name):
 def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default"):
     """
     Safely adds or updates a BGP 'redist-rules' entry named `loopback_cidr` in the given VR,
-    preserving the rest of the existing VR configuration.
+    preserving the rest of the existing VR configuration, and dynamically referencing router-id.
     """
-
     url = f"https://{ip}/restapi/v{os_version}/Network/VirtualRouters?name={vr_name}"
-    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
+    headers = {
+        "X-PAN-KEY": api_key,
+        "Content-Type": "application/json"
+    }
 
     # 1) GET the existing VR config
     get_resp = requests.get(url, headers=headers, verify=False)
     if get_resp.status_code != 200:
-        print(f"[{ip}] Failed to retrieve VR '{vr_name}' (GET). Status: {get_resp.status_code}, Resp: {get_resp.text}")
+        print(f"[{ip}] Failed to retrieve VR '{vr_name}' (GET). "
+              f"Status: {get_resp.status_code}, Resp: {get_resp.text}")
         return False
 
     try:
@@ -259,7 +262,6 @@ def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default
             entry = entry[0]
 
         # 2) Ensure the structure for BGP and redist-rules exists
-        #    (If they're missing, create them so we don't wipe anything.)
         if "protocol" not in entry:
             entry["protocol"] = {}
         if "bgp" not in entry["protocol"]:
@@ -269,13 +271,18 @@ def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default
         if "entry" not in entry["protocol"]["bgp"]["redist-rules"]:
             entry["protocol"]["bgp"]["redist-rules"]["entry"] = []
 
-        # If you want to **force** a router-id if none is set, you can do:
-        # if "router-id" not in entry["protocol"]["bgp"]:
-        #     entry["protocol"]["bgp"]["router-id"] = "169.254.100.253"
+        # 3) Dynamically get or set the router-id
+        bgp_block = entry["protocol"]["bgp"]
+        existing_router_id = bgp_block.get("router-id")
+        if not existing_router_id:
+            # Example: if no router-id is set, use the loopback interface IP
+            ip_obj = ip_interface(loopback_cidr)
+            new_router_id = str(ip_obj.ip)
+            bgp_block["router-id"] = new_router_id
+            print(f"[{ip}] No router-id set, using {new_router_id} as router-id.")
 
-        redist_list = entry["protocol"]["bgp"]["redist-rules"]["entry"]
-
-        # 3) See if a redist-rules entry already exists for our loopback_cidr
+        # 4) Add or update the redist rule
+        redist_list = bgp_block["redist-rules"]["entry"]
         existing_rule = None
         for rule in redist_list:
             if rule.get("@name") == loopback_cidr:
@@ -283,22 +290,21 @@ def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default
                 break
 
         if existing_rule:
-            # Update it (e.g. ensure "address-family-identifier" is correct)
             existing_rule["address-family-identifier"] = "ipv4"
         else:
-            # Add a new redist rule
             redist_list.append({
                 "@name": loopback_cidr,
                 "address-family-identifier": "ipv4"
             })
 
-        # 4) PUT the updated VR config back
+        # 5) PUT the updated VR config back
         put_resp = requests.put(url, headers=headers, json={"entry": entry}, verify=False)
         if put_resp.status_code == 200:
-            print(f"[{ip}] Successfully updated BGP redist-rules for VR '{vr_name}'.")
+            print(f"[{ip}] Successfully updated BGP redist-rules and router-id in VR '{vr_name}'.")
             return True
         else:
-            print(f"[{ip}] Failed to update VR '{vr_name}' (PUT). Status: {put_resp.status_code}, Resp: {put_resp.text}")
+            print(f"[{ip}] Failed to update VR '{vr_name}' (PUT). "
+                  f"Status: {put_resp.status_code}, Resp: {put_resp.text}")
             return False
 
     except Exception as e:
