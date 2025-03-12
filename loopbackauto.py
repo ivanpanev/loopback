@@ -238,46 +238,71 @@ def update_default_vr_with_interface(ip, api_key, os_version, interface_name):
 
 def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default"):
     """
-    Creates or updates BGP 'redit-rules' in the VR named 'default'
-    so that the rule's @name = loopback_cidr, address-family-identifier = "ipv4".
-
-    Note: This overwrites 'redit-rules' with a single entry. If you want to preserve
-    other entries, you'd first GET the current config and merge. However, this is the
-    minimal approach the user requested, with the EXACT key "redit-rules".
+    Safely adds or updates a BGP 'redist-rules' entry named `loopback_cidr` in the given VR,
+    preserving the rest of the existing VR configuration.
     """
+
     url = f"https://{ip}/restapi/v{os_version}/Network/VirtualRouters?name={vr_name}"
-    headers = {
-        "X-PAN-KEY": api_key,
-        "Content-Type": "application/json"
-    }
+    headers = {"X-PAN-KEY": api_key, "Content-Type": "application/json"}
 
-    print(f"Loopback {loopback_cidr}")
+    # 1) GET the existing VR config
+    get_resp = requests.get(url, headers=headers, verify=False)
+    if get_resp.status_code != 200:
+        print(f"[{ip}] Failed to retrieve VR '{vr_name}' (GET). Status: {get_resp.status_code}, Resp: {get_resp.text}")
+        return False
 
-    payload = {
-        "entry": {
-            "@name": 'default',
-            "protocol": {
-                "bgp": {
-                    "router-id": "169.254.100.253",
-                    "redist-rules": {
-                        "entry": [
-                            {
-                                "@name": loopback_cidr,
-                                "address-family-identifier": "ipv4"
-                            }
-                        ]
-                    }
-                }
-            }
-        }
-    }
+    try:
+        vr_data = get_resp.json()
+        entry = vr_data["result"]["entry"]
+        # If the response has multiple VR entries, pick the first one:
+        if isinstance(entry, list):
+            entry = entry[0]
 
-    resp = requests.put(url, headers=headers, json=payload, verify=False)
-    if resp.status_code == 200:
-        print(f"[{ip}] BGP redit-rules updated with @name={loopback_cidr}.")
-        return True
-    else:
-        print(f"[{ip}] Failed to update redit-rules. Status: {resp.status_code}, Response: {resp.text}")
+        # 2) Ensure the structure for BGP and redist-rules exists
+        #    (If they're missing, create them so we don't wipe anything.)
+        if "protocol" not in entry:
+            entry["protocol"] = {}
+        if "bgp" not in entry["protocol"]:
+            entry["protocol"]["bgp"] = {}
+        if "redist-rules" not in entry["protocol"]["bgp"]:
+            entry["protocol"]["bgp"]["redist-rules"] = {"entry": []}
+        if "entry" not in entry["protocol"]["bgp"]["redist-rules"]:
+            entry["protocol"]["bgp"]["redist-rules"]["entry"] = []
+
+        # If you want to **force** a router-id if none is set, you can do:
+        # if "router-id" not in entry["protocol"]["bgp"]:
+        #     entry["protocol"]["bgp"]["router-id"] = "169.254.100.253"
+
+        redist_list = entry["protocol"]["bgp"]["redist-rules"]["entry"]
+
+        # 3) See if a redist-rules entry already exists for our loopback_cidr
+        existing_rule = None
+        for rule in redist_list:
+            if rule.get("@name") == loopback_cidr:
+                existing_rule = rule
+                break
+
+        if existing_rule:
+            # Update it (e.g. ensure "address-family-identifier" is correct)
+            existing_rule["address-family-identifier"] = "ipv4"
+        else:
+            # Add a new redist rule
+            redist_list.append({
+                "@name": loopback_cidr,
+                "address-family-identifier": "ipv4"
+            })
+
+        # 4) PUT the updated VR config back
+        put_resp = requests.put(url, headers=headers, json={"entry": entry}, verify=False)
+        if put_resp.status_code == 200:
+            print(f"[{ip}] Successfully updated BGP redist-rules for VR '{vr_name}'.")
+            return True
+        else:
+            print(f"[{ip}] Failed to update VR '{vr_name}' (PUT). Status: {put_resp.status_code}, Resp: {put_resp.text}")
+            return False
+
+    except Exception as e:
+        print(f"[{ip}] Exception while adding BGP redist rule: {str(e)}")
         return False
 
 def commit_changes(ip, api_key):
