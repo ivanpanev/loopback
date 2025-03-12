@@ -251,12 +251,15 @@ def add_bgp_redist_rule(ip, api_key, os_version, loopback_cidr, vr_name="default
         "Content-Type": "application/json"
     }
 
+    print(f"Loopback {loopback_cidr}")
+
     payload = {
         "entry": {
-            "@name": vr_name,
+            "@name": 'default',
             "protocol": {
                 "bgp": {
-                    "redit-rules": {
+                    "router-id": "169.254.100.253",
+                    "redist-rules": {
                         "entry": [
                             {
                                 "@name": loopback_cidr,
