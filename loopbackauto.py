@@ -1,138 +1,85 @@
-#!/usr/bin/env python3
-
-import requests
-import getpass
-import csv
-import os
-import xml.etree.ElementTree as ET
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-
-# Suppress only the single warning from urllib3 about not verifying the SSL cert
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-
-def get_api_key(fw_ip, username, password):
-    """
-    Retrieve an API key from the firewall using the 'keygen' call.
-    Returns the key as a string, or None if unsuccessful.
-    """
-    url = f"https://{fw_ip}/api/"
-    params = {
-        "type": "keygen",
-        "user": username,
-        "password": password
-    }
-    try:
-        r = requests.get(url, params=params, verify=False, timeout=10)
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
-        # The key is typically found at response/result/key
-        key_element = root.find("./result/key")
-        if key_element is not None:
-            return key_element.text.strip()
-        else:
-            return None
-    except Exception as e:
-        print(f"[ERROR] Could not retrieve API key from {fw_ip}: {e}")
-        return None
-
-def get_system_info(fw_ip, api_key):
-    """
-    Use the XML API to run 'show system info'.
-    Returns (hostname, serial_number) as a tuple.
-    """
-    url = f"https://{fw_ip}/api/"
-    cmd = "<show><system><info></info></system></show>"
-    params = {
-        "type": "op",
-        "cmd": cmd,
-        "key": api_key
-    }
-    try:
-        r = requests.get(url, params=params, verify=False, timeout=10)
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
-
-        hostname = root.find(".//hostname")
-        serial = root.find(".//serial")
-
-        hostname_str = hostname.text.strip() if hostname is not None else "N/A"
-        serial_str = serial.text.strip() if serial is not None else "N/A"
-
-        return hostname_str, serial_str
-    except Exception as e:
-        print(f"[ERROR] Failed to retrieve system info from {fw_ip}: {e}")
-        return ("N/A", "N/A")
-
-def get_loopback109_ip(fw_ip, api_key):
-    """
-    Use the XML API to run 'show interface loopback.109'.
-    Returns the IP address as a string (including mask, e.g. 10.1.109.1/24),
-    or "N/A" if not found.
-    """
-    url = f"https://{fw_ip}/api/"
-    cmd = "<show><interface>loopback.109</interface></show>"
-    params = {
-        "type": "op",
-        "cmd": cmd,
-        "key": api_key
-    }
-    try:
-        r = requests.get(url, params=params, verify=False, timeout=10)
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
-        # Typical relevant path might be something like .//result/hw/ip
-        ip_elem = root.find(".//ip")
-        if ip_elem is not None and ip_elem.text:
-            return ip_elem.text.strip()
-        else:
-            return "N/A"
-    except Exception as e:
-        print(f"[ERROR] Failed to retrieve loopback.109 IP from {fw_ip}: {e}")
-        return "N/A"
-
-def main():
-    # Prompt for credentials
-    username = input("Enter Username: ")
-    password = getpass.getpass("Enter Password: ")
-
-    # Prompt for the file containing the list of firewall IP addresses
-    device_file = input("Enter path to file containing firewall IPs: ")
-    if not os.path.isfile(device_file):
-        print(f"[ERROR] File {device_file} does not exist.")
-        return
-
-    # Read firewall IPs from file
-    with open(device_file, 'r') as f:
-        firewall_ips = [line.strip() for line in f if line.strip()]
-
-    output_csv = "pa_devices.csv"
-    # Prepare CSV for writing
-    with open(output_csv, mode='w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["Hostname", "Serial Number", "Loopback.109 IP", "Firewall MGMT IP"])
-
-        for fw_ip in firewall_ips:
-            print(f"\n[INFO] Processing device {fw_ip} ...")
-
-            # 1) Retrieve API Key
-            api_key = get_api_key(fw_ip, username, password)
-            if not api_key:
-                print(f"[ERROR] Could not retrieve API key for {fw_ip}. Skipping.")
-                writer.writerow(["N/A", "N/A", "N/A", fw_ip])
-                continue
-
-            # 2) Get system info (hostname, serial)
-            hostname, serial = get_system_info(fw_ip, api_key)
-
-            # 3) Get loopback.109 IP
-            loop109_ip = get_loopback109_ip(fw_ip, api_key)
-
-            # Write row to CSV
-            writer.writerow([hostname, serial, loop109_ip, fw_ip])
-
-            print(f"[SUCCESS] {fw_ip}: Hostname={hostname}, Serial={serial}, Loopback.109={loop109_ip}")
-
-    print(f"\n[DONE] Results have been saved to {output_csv}.")
-
-if __name__ == "__main__":
-    main()
+<response status="success">
+<result>
+<dp>dp0</dp>
+<ifnet>
+<name>loopback.109</name>
+<id>256</id>
+<tag>0</tag>
+<mode>layer3</mode>
+<fwd_type>vr</fwd_type>
+<vr>default</vr>
+<mtu>1500</mtu>
+<df_ignore>False</df_ignore>
+<addr>
+<member>172.30.254.254/32</member>
+</addr>
+<dyn-addr/>
+<addr6/>
+<ndpmon>False</ndpmon>
+<dad>False</dad>
+<ipv6_client>False</ipv6_client>
+<ra>False</ra>
+<inband>
+<profile>CUST-MGMT-PROFILE</profile>
+<ping>True</ping>
+<telnet>False</telnet>
+<ssh>False</ssh>
+<http>False</http>
+<https>True</https>
+<snmp>False</snmp>
+<response_pages>False</response_pages>
+<userid_service>False</userid_service>
+<userid_sl_service_udp>False</userid_sl_service_udp>
+<userid_sl_service_ssl>False</userid_sl_service_ssl>
+<http_ocsp>False</http_ocsp>
+</inband>
+<service/>
+<mgt_subnet>False</mgt_subnet>
+<vsys>vsys1</vsys>
+<zone>Untrust-L3</zone>
+<tcpmss>False</tcpmss>
+<mssadjv4>0</mssadjv4>
+<mssadjv6>0</mssadjv6>
+<policing>False</policing>
+<circuitonly>False</circuitonly>
+<tunnel/>
+<sdwan>False</sdwan>
+<proxy-protocol>no</proxy-protocol>
+<gre>False</gre>
+<counters>
+<hw/>
+<ifnet>
+<entry>
+<name>loopback.109</name>
+<ibytes>0</ibytes>
+<obytes>0</obytes>
+<ipackets>0</ipackets>
+<opackets>0</opackets>
+<ierrors>0</ierrors>
+<idrops>0</idrops>
+<flowstate>0</flowstate>
+<ifwderrors>0</ifwderrors>
+<noroute>0</noroute>
+<noarp>0</noarp>
+<noneigh>0</noneigh>
+<neighpend>0</neighpend>
+<nomac>0</nomac>
+<zonechange>0</zonechange>
+<land>0</land>
+<pod>0</pod>
+<teardrop>0</teardrop>
+<ipspoof>0</ipspoof>
+<macspoof>0</macspoof>
+<icmp_frag>0</icmp_frag>
+<l2_encap>0</l2_encap>
+<l2_decap>0</l2_decap>
+<tcp_conn>0</tcp_conn>
+<udp_conn>0</udp_conn>
+<sctp_conn>0</sctp_conn>
+<other_conn>0</other_conn>
+</entry>
+</ifnet>
+</counters>
+</ifnet>
+</result>
+</response>
