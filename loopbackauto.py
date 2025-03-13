@@ -1,85 +1,38 @@
-<response status="success">
-<result>
-<dp>dp0</dp>
-<ifnet>
-<name>loopback.109</name>
-<id>256</id>
-<tag>0</tag>
-<mode>layer3</mode>
-<fwd_type>vr</fwd_type>
-<vr>default</vr>
-<mtu>1500</mtu>
-<df_ignore>False</df_ignore>
-<addr>
-<member>172.30.254.254/32</member>
-</addr>
-<dyn-addr/>
-<addr6/>
-<ndpmon>False</ndpmon>
-<dad>False</dad>
-<ipv6_client>False</ipv6_client>
-<ra>False</ra>
-<inband>
-<profile>CUST-MGMT-PROFILE</profile>
-<ping>True</ping>
-<telnet>False</telnet>
-<ssh>False</ssh>
-<http>False</http>
-<https>True</https>
-<snmp>False</snmp>
-<response_pages>False</response_pages>
-<userid_service>False</userid_service>
-<userid_sl_service_udp>False</userid_sl_service_udp>
-<userid_sl_service_ssl>False</userid_sl_service_ssl>
-<http_ocsp>False</http_ocsp>
-</inband>
-<service/>
-<mgt_subnet>False</mgt_subnet>
-<vsys>vsys1</vsys>
-<zone>Untrust-L3</zone>
-<tcpmss>False</tcpmss>
-<mssadjv4>0</mssadjv4>
-<mssadjv6>0</mssadjv6>
-<policing>False</policing>
-<circuitonly>False</circuitonly>
-<tunnel/>
-<sdwan>False</sdwan>
-<proxy-protocol>no</proxy-protocol>
-<gre>False</gre>
-<counters>
-<hw/>
-<ifnet>
-<entry>
-<name>loopback.109</name>
-<ibytes>0</ibytes>
-<obytes>0</obytes>
-<ipackets>0</ipackets>
-<opackets>0</opackets>
-<ierrors>0</ierrors>
-<idrops>0</idrops>
-<flowstate>0</flowstate>
-<ifwderrors>0</ifwderrors>
-<noroute>0</noroute>
-<noarp>0</noarp>
-<noneigh>0</noneigh>
-<neighpend>0</neighpend>
-<nomac>0</nomac>
-<zonechange>0</zonechange>
-<land>0</land>
-<pod>0</pod>
-<teardrop>0</teardrop>
-<ipspoof>0</ipspoof>
-<macspoof>0</macspoof>
-<icmp_frag>0</icmp_frag>
-<l2_encap>0</l2_encap>
-<l2_decap>0</l2_decap>
-<tcp_conn>0</tcp_conn>
-<udp_conn>0</udp_conn>
-<sctp_conn>0</sctp_conn>
-<other_conn>0</other_conn>
-</entry>
-</ifnet>
-</counters>
-</ifnet>
-</result>
-</response>
+import requests
+import xml.etree.ElementTree as ET
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+# Suppress only the single warning from urllib3 about not verifying the SSL cert.
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+
+def get_loopback109_ip(fw_ip, api_key):
+    """
+    Query the firewall for 'show interface loopback.109' via the XML API,
+    parse the response, and return the IP address (e.g. 172.30.254.254/32).
+    """
+    url = f"https://{fw_ip}/api/"
+    cmd = "<show><interface>loopback.109</interface></show>"
+    params = {
+        "type": "op",
+        "cmd": cmd,
+        "key": api_key
+    }
+    try:
+        # Send request to firewall
+        r = requests.get(url, params=params, verify=False, timeout=10)
+        r.raise_for_status()
+
+        # Parse XML
+        root = ET.fromstring(r.text)
+
+        # Locate the <member> element under <ifnet><addr>
+        # which contains the IP address/mask, e.g. "172.30.254.254/32"
+        member_elem = root.find(".//ifnet/addr/member")
+        if member_elem is None or not member_elem.text:
+            return "N/A"
+
+        return member_elem.text.strip()
+
+    except Exception as e:
+        print(f"[ERROR] Failed to retrieve loopback.109 IP from {fw_ip}: {e}")
+        return "N/A"
