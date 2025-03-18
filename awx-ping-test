@@ -1,0 +1,14 @@
+---
+- name: Simple Ping Test
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Ping an external IP
+      command: ping -c 4 192.168.100.10
+      register: ping_output
+      changed_when: false  # So the job doesn't show "changed" every time
+
+    - name: Display ping results
+      debug:
+        msg: "{{ ping_output.stdout_lines }}"
