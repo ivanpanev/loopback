@@ -1,14 +1,363 @@
----
-- name: Simple Ping Test
-  hosts: localhost
-  gather_facts: no
+Operational Commands > request > system > software > check > preferred
 
-  tasks:
-    - name: Ping an external IP
-      command: ping -c 4 192.168.100.10
-      register: ping_output
-      changed_when: false  # So the job doesn't show "changed" every time
+This XML file does not appear to have any style information associated with it. The document tree is shown below.
+<response status="success">
+<result>
+<sw-updates last-updated-at="2025/03/18 15:27:10">
+<msg/>
+<versions>
+<entry>
+<version>11.1.6-h3</version>
+<filename>PanOS_vm-11.1.6-h3</filename>
+<size>823</size>
+<size-kb>843365</size-kb>
+<released-on>2025/02/20 18:44:43</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>ea97d2ad16716d59abec14d41c4ce533dbd04bc97078ecc6634dd57e500b6922</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>11.1.4-h7</version>
+<filename>PanOS_vm-11.1.4-h7</filename>
+<size>786</size>
+<size-kb>805076</size-kb>
+<released-on>2024/11/16 03:24:27</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>611b7130da2c50b27a7be02e0268ff29e8b46499682c4f701814fedc10606ede</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>11.0.4-h6</version>
+<filename>PanOS_vm-11.0.4-h6</filename>
+<size>754</size>
+<size-kb>772940</size-kb>
+<released-on>2024/11/17 05:00:32</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-0/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>cfb5a423c3318df459f54535ef218609cfb51a16548461099f661cda137828a9</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>10.2.10-h9</version>
+<filename>PanOS_vm-10.2.10-h9</filename>
+<size>690</size>
+<size-kb>706593</size-kb>
+<released-on>2024/11/15 04:00:30</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-2/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>e074f6c76b97fdb52f348f43f4fdba2582e42ab087cee9256648c6b5849c0c59</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>10.1.14-h10</version>
+<filename>PanOS_vm-10.1.14-h10</filename>
+<size>586</size>
+<size-kb>600501</size-kb>
+<released-on>2025/02/18 08:37:34</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>16a06d8b1bbd6375a9a70486249c325777a49d879d2744f5cba9e925c4276d20</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>10.1.14-h8</version>
+<filename>PanOS_vm-10.1.14-h8</filename>
+<size>571</size>
+<size-kb>585608</size-kb>
+<released-on>2024/12/26 02:31:06</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>7a7e4f6d4f582287a813c7ae1368987d47a8832930022135ad60765c4cbac865</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>9.1.18</version>
+<filename>PanOS_vm-9.1.18</filename>
+<size>402</size>
+<size-kb>412106</size-kb>
+<released-on>2024/02/27 05:29:47</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/91/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>c3bfd67e66e21c90548ce9565a0e32f65cec2cdae47970558fc1f7f37bc79b9f</sha256>
+<release-type>Preferred</release-type>
+</entry>
+<entry>
+<version>9.1.17</version>
+<filename>PanOS_vm-9.1.17</filename>
+<size>402</size>
+<size-kb>412187</size-kb>
+<released-on>2023/12/11 04:34:40</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/91/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>b60b9b14be8bfa832c9834445ebeb43eca14313ab0cd28363850bb4eb3bd3a4f</sha256>
+<release-type>Preferred</release-type>
+</entry>
+</versions>
+</sw-updates>
+</result>
+</response>
 
-    - name: Display ping results
-      debug:
-        msg: "{{ ping_output.stdout_lines }}"
+
+
+Operational Commands > request > system > software > check > base
+
+This XML file does not appear to have any style information associated with it. The document tree is shown below.
+<response status="success">
+<result>
+<sw-updates last-updated-at="2025/03/18 15:28:05">
+<msg/>
+<versions>
+<entry>
+<version>11.2.0</version>
+<filename>PanOS_vm-11.2.0</filename>
+<size>1167</size>
+<size-kb>1195053</size-kb>
+<released-on>2024/05/02 10:16:53</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-2/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>667f42feb8c73e14b2b965ba6356a00e588710b14de6750d20ebbd5633264bf1</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>11.1.0</version>
+<filename>PanOS_vm-11.1.0</filename>
+<size>1179</size>
+<size-kb>1207317</size-kb>
+<released-on>2023/11/02 12:02:59</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>c504e70e41209f35711a45045a09d34e04ff64e81f461ead206b32c001a6ebce</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>11.0.0</version>
+<filename>PanOS_vm-11.0.0</filename>
+<size>1037</size>
+<size-kb>1062271</size-kb>
+<released-on>2022/11/17 04:45:28</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/11-0/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>0585986a10aec9bfb1c660c3a51b59662dcf81cf87a8419e278473b80c782d88</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>10.2.0</version>
+<filename>PanOS_vm-10.2.0</filename>
+<size>1010</size>
+<size-kb>1034657</size-kb>
+<released-on>2022/02/27 15:32:20</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-2/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>yes</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>31c9a9b81790763757be539244e47eb27ec98f60f0809d999c3f14889d4f5328</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>10.1.0</version>
+<filename>PanOS_vm-10.1.0</filename>
+<size>917</size>
+<size-kb>939231</size-kb>
+<released-on>2021/06/02 04:16:22</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-1/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>387c60f202803a838a0d27613796c1c565f09b0ab64f1b1626834cb2691a443e</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>10.0.0</version>
+<filename>PanOS_vm-10.0.0</filename>
+<size>806</size>
+<size-kb>826249</size-kb>
+<released-on>2020/07/16 16:15:10</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/10-0/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>6e780803cd5433ccb07eabc681a695d061c8753b279000d1f382f2f3dab1140c</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>9.1.0</version>
+<filename>PanOS_vm-9.1.0</filename>
+<size>714</size>
+<size-kb>731649</size-kb>
+<released-on>2019/12/13 08:51:56</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/91/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>3be2494e6a4286cf3460ca64d571be44bf1fcdbb644fb88e157e2bb3c90bbd74</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>9.0.0</version>
+<filename>PanOS_vm-9.0.0</filename>
+<size>759</size>
+<size-kb>777222</size-kb>
+<released-on>2019/02/06 00:54:03</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/90/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>f0ef75731908d0196d5c0c6deb75f809b769d6709901694c7936d959e9427c50</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>8.1.0</version>
+<filename>PanOS_vm-8.1.0</filename>
+<size>663</size>
+<size-kb>679931</size-kb>
+<released-on>2018/03/01 16:10:59</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/81/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>63e6377923de247df9151d2c34391881b2f56a53f7a7bd5006320ae39a337403</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>8.0.0</version>
+<filename>PanOS_vm-8.0.0</filename>
+<size>573</size>
+<size-kb>587128</size-kb>
+<released-on>2017/01/29 14:38:41</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/redirect-80-pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>1A88C8F85B85730D5686E5DFE4E427382FD891DF7C53CAE5520C8AFB4A29F978</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>7.1.0</version>
+<filename>PanOS_vm-7.1.0</filename>
+<size>549</size>
+<size-kb>562686</size-kb>
+<released-on>2016/03/29 19:43:48</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/71/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256>C269D3B55ED707D6C7EC51892651E1163523051A46BAFEDFE6846925A5A2E45B</sha256>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>6.1.0</version>
+<filename>PanOS_vm-6.1.0</filename>
+<size>364</size>
+<size-kb>373149</size-kb>
+<released-on>2014/10/25 09:29:59</released-on>
+<release-notes>
+<![CDATA[ https://www.paloaltonetworks.com/documentation/61/pan-os/pan-os-release-notes ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256/>
+<release-type>Base</release-type>
+</entry>
+<entry>
+<version>6.0.0</version>
+<filename>PanOS_vm-6.0.0</filename>
+<size>382</size>
+<size-kb>391443</size-kb>
+<released-on>2014/01/19 10:53:33</released-on>
+<release-notes>
+<![CDATA[ https://proditpdownloads.paloaltonetworks.com/software/PAN-OS-6.0.0-RN-revD.pdf?__token__=exp=1742916483~acl=/software/PAN-OS-6.0.0-RN-revD.pdf*~hmac=352e466299c8990aa6a3dce72ad31964e44da63faabfe4c2da8e9d6e5ec8e198 ]]>
+</release-notes>
+<downloaded>no</downloaded>
+<current>no</current>
+<latest>no</latest>
+<uploaded>no</uploaded>
+<sha256/>
+<release-type>Base</release-type>
+</entry>
+</versions>
+</sw-updates>
+</result>
+</response>
