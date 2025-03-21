@@ -1,22 +1,38 @@
----
-- name: Schedule Firewall Upgrade Job
-  hosts: localhost
-  vars:
-    requested_time: "{{ customer_date }} {{ customer_time }}"
-  tasks:
-    - name: Convert time to UTC for AWX schedule
-      set_fact:
-        awx_datetime: "{{ requested_time | to_datetime('%Y-%m-%d %H:%M') | to_utc | strftime('%Y%m%dT%H%M%SZ') }}"
+def update_mgmt_profile(api_key):
+    # Get current profile configuration
+    url = f'https://{FIREWALL_IP}/restapi/v10.2/config/devices/entry[@name="localhost.localdomain"]/network/profiles/interface-management/entry[@name="{PROFILE_NAME}"]'
+    
+    headers = {
+        'X-PAN-KEY': api_key
+    }
 
-    - name: Create schedule for Job 2
-      awx.awx.tower_schedule:
-        name: "Upgrade at {{ requested_time }}"
-        job_template: "Your_Job2_Template_ID"
-        rrule: "DTSTART:{{ awx_datetime }};FREQ=ONCE"
-        extra_vars:
-          target_version: "{{ target_version }}"
-          gn_ids: "{{ gn_ids | join(',') }}"
-        tower_host: "https://your-awx-host"
-        tower_username: "awx_user"
-        tower_password: "awx_password"
-        validate_certs: false
+    # Get existing config
+    response = requests.get(url, headers=headers, verify=False)
+    root = ET.fromstring(response.text)
+    
+    # Find and replace IP address
+    permitted_ip = root.find('.//permitted-ip')
+    if permitted_ip is not None and permitted_ip.text == OLD_IP:
+        permitted_ip.text = NEW_IP
+    else:
+        print("Old IP not found or config structure changed")
+        return False
+
+    # Update configuration
+    updated_config = ET.tostring(root.find('.//entry'), encoding='unicode')
+    
+    # Send PUT request with updated config
+    response = requests.put(
+        url,
+        headers=headers,
+        data=updated_config,
+        verify=False
+    )
+
+    if response.status_code == 200:
+        print("Successfully updated management profile")
+        return True
+    else:
+        print(f"Update failed. Status code: {response.status_code}")
+        print(response.text)
+        return False
