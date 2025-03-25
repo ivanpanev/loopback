@@ -1,38 +1,102 @@
-def update_mgmt_profile(api_key):
-    # Get current profile configuration
-    url = f'https://{FIREWALL_IP}/restapi/v10.2/config/devices/entry[@name="localhost.localdomain"]/network/profiles/interface-management/entry[@name="{PROFILE_NAME}"]'
-    
-    headers = {
-        'X-PAN-KEY': api_key
+- name: Query NetBox for a device by name
+  uri:
+    url: "https://netbox.spas.net/api/dcim/devices/?name={{ fw_name }}"
+    method: GET
+    return_content: true
+    headers:
+      Authorization: "Token 551asdasdasdasd"
+      Accept: "application/json"
+  register: device_response
+
+- name: Query NetBox for a VM by name if no device found
+  uri:
+    url: "https://netbox.spas.net/api/virtualization/virtual-machines/?name={{ fw_name }}"
+    method: GET
+    return_content: true
+    headers:
+      Authorization: "Token 551asdasdasdasd"
+      Accept: "application/json"
+  register: vm_response
+  when: "(device_response['json']['results'] | length) == 0"
+
+- name: Determine which data to use
+  set_fact:
+    primary_data: "{{ vm_response['json']['results'][0] if (device_response['json']['results'] | length) == 0 else device_response['json']['results'][0] }}"
+  when: device_response['json']['results'] or vm_response['json']['results']
+
+- name: Update group with primary IPv4
+  add_host:
+    hostname: "{{ fw_name }}"
+    groups: "{{ fw_name }}"
+    ansible_host: "{{ (primary_data.primary_ip4.address | split('/'))[0] }}"
+  when: primary_data.primary_ip4 is defined
+
+
+
+
+
+
+
+
+
+
+
+
+roleIDs = ['226', '478', '136', '477']
+
+
+https://netbox.spas.net/api/virtualization/virtual-machines/?role_id=477&cf_cmd_gnid=1394104
+
+
+"extra_vars": {
+        "RequestDetails": {
+            "TicketNumber": "1234",
+            "GNID": "12311",
+            "Hostname": "test-dev-1",
+            "PrimaryIP": "200.0.0.1",
+            "DeviceRole": "BLANK",
+            "DeviceMgmt": "BLANK",
+            "DeviceMgmtIP": "BLANK",
+            "DeviceMgmtDeviceGroup": "BLANK"
+        },
+        "Changes": [
+            {
+                "ChangeCategory": "SecurityRule",
+                "ChangeType": "Add",
+                "RuleName": "TESTRULE",
+                "Tag": [],
+                "Description": "",
+                "SourceZone": [
+                    "intenal"[],
+                ],
+                "SourceAddress": [
+                    "10.0.0.0/24"
+                ],
+                "SourceUser": [],
+                "SourceDevice": [],
+                "DestinationZone": [
+                    "external"
+                ],
+                "DestinationAddress": [
+                    "10.0.1.0/24"
+                ],
+                "DestinationDevice": [],
+                "Application": [],
+                "URLCategory": [],
+                "Service": [
+                    "TCP/80"
+                ],
+                "Action": "allow",
+                "LogSetting": "No",
+                "ProfileGroup": "None",
+                "URLFiltering": "None",
+                "DataFiltering": "None",
+                "FileBlocking": "None",
+                "Antivirus": "None",
+                "AntiSpyware": "None",
+                "VulnerabilityProtection": "None",
+                "WildFireAnalysis": "None"
+            }
+        ]
     }
-
-    # Get existing config
-    response = requests.get(url, headers=headers, verify=False)
-    root = ET.fromstring(response.text)
-    
-    # Find and replace IP address
-    permitted_ip = root.find('.//permitted-ip')
-    if permitted_ip is not None and permitted_ip.text == OLD_IP:
-        permitted_ip.text = NEW_IP
-    else:
-        print("Old IP not found or config structure changed")
-        return False
-
-    # Update configuration
-    updated_config = ET.tostring(root.find('.//entry'), encoding='unicode')
-    
-    # Send PUT request with updated config
-    response = requests.put(
-        url,
-        headers=headers,
-        data=updated_config,
-        verify=False
-    )
-
-    if response.status_code == 200:
-        print("Successfully updated management profile")
-        return True
-    else:
-        print(f"Update failed. Status code: {response.status_code}")
-        print(response.text)
-        return False
+}
