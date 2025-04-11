@@ -8,50 +8,6 @@
           password: '{{ device.password }}'
       register: auth
 
-    # - name: PALO-NGFW Make API call to retrieve high-availability info
-    #   uri:
-    #     url: "https://{{ device.mgmt_address }}/api/?type=op&cmd=<show><high-availability><all></all></high-availability></show>&key={{ auth.api_key }}"
-    #     method: GET
-    #     return_content: yes
-    #     validate_certs: no
-    #   register: ha_response
-
-    # - name: PALO-NGFW Check if HA is enabled
-    #   community.general.xml:
-    #     xmlstring: "{{ ha_response.content }}"
-    #     xpath: "/response/result/enabled"
-    #     content: text
-    #   register: ha_enabled
-
-    # - name: PALO-NGFW Parse XML for 'state' tag
-    #   community.general.xml:
-    #     xmlstring: "{{ ha_response.content }}"
-    #     xpath: "/response/result/group/local-info/state"
-    #     content: text
-    #   register: ha_state
-    #   when: ha_enabled.matches[0]['enabled']
-
-    # - name: PALO-NGFW Handle cases when current member is the passive peer in a HA cluster 
-    #   block: 
-
-    #   - name: PALO-NGFW Parse XML for 'mgmt-ip' tag in peer info
-    #     community.general.xml:
-    #       xmlstring: "{{ ha_response.content }}"
-    #       xpath: "/response/result/group/peer-info/mgmt-ip"
-    #       content: text
-    #     register: peer_mgmt_ip
-
-    #   - name: PALO-NGFW Update provider with the active node's IP
-    #     set_fact:
-    #       device:
-    #         mgmt_address: "{{ peer_mgmt_ip.matches[0]['mgmt-ip'] }}"
-    #         username: "{{ device.username }}"
-    #         password: "{{ device.password }}"
-    #         Ticket: "{{ device.Ticket }}"
-    #         block_ips: "{{ device.block_ips }}"
-
-    #   when: ha_state.matches[0]['state'] == 'passive'
-
     - name: PALO-NGFW Create tag object 'GTT MDR'
       paloaltonetworks.panos.panos_tag_object:
         provider:
@@ -62,7 +18,7 @@
         color: 'chestnut'
         comments: 'GTT Managed Detection and Response'
 
-    - name: PALO-NGFW Gather all address objects
+    - name: PALO-NGFW Gather all existing address objects
       paloaltonetworks.panos.panos_address_object:
         provider:
           ip_address: '{{ device.mgmt_address }}'
@@ -89,12 +45,30 @@
       when: device.block_ips | length > 0
       register: result_of_object_creation
 
-    - name: PALO-NGFW Gather the object names of new objects
+    - name: PALO-NGFW Gather the object names of newly created or pre-existing (but relevant) objects
       set_fact:
-        relevant_address_objects: "{{ (gathered_address_objects.gathered | selectattr('value', 'in', device.block_ips) | map(attribute='name') | list) +
-                                      (result_of_object_creation.results | selectattr('changed', 'equalto', true) | map(attribute='invocation.module_args.name') | list if result_of_object_creation is defined else []) }}"
+        relevant_address_objects: >-
+          {{
+            (
+              gathered_address_objects.gathered
+              | selectattr('value', 'in', device.block_ips)
+              | map(attribute='name')
+              | list
+            )
+            +
+            (
+              result_of_object_creation.results | default([])
+              | selectattr('changed', 'equalto', true)
+              | map(attribute='invocation.module_args.name')
+              | list
+            )
+          | unique
+          }}
 
-    - name: PALO-NGFW Gather current object group
+    # -------------------------------------------------------------------------
+    # 1) Gather the top-level group "GTT-MDR-Blocked-Addresses"
+    # -------------------------------------------------------------------------
+    - name: PALO-NGFW Gather top-level group
       paloaltonetworks.panos.panos_address_group:
         provider:
           ip_address: '{{ device.mgmt_address }}'
@@ -102,37 +76,230 @@
           password: '{{ device.password }}'
         state: gathered
         gathered_filter: 'name == "GTT-MDR-Blocked-Addresses"'
-      register: gathered_object_group
+      register: gathered_top_level
 
-    - name: PALO-NGFW Extract current object group members
-      set_fact:
-        current_group_members: "{{ gathered_object_group.gathered[0].static_value | default([]) }}"
-      when: gathered_object_group.gathered | length > 0
-
-    - name: PALO-NGFW Combine current and new object group members
-      set_fact:
-        updated_group_members: "{{ (current_group_members + relevant_address_objects) | unique }}"
-      when: gathered_object_group.gathered | length > 0
-
-    - name: PALO-NGFW Compile updated object group members when group does not yet exist
-      set_fact:
-        updated_group_members: "{{ (relevant_address_objects) | unique }}"
-      when: gathered_object_group.gathered | length == 0
-
-    - name: PALO-NGFW Create or update object group
+    - name: PALO-NGFW Create top-level group if it does not exist (empty membership)
       paloaltonetworks.panos.panos_address_group:
         provider:
           ip_address: '{{ device.mgmt_address }}'
           username: '{{ device.username }}'
           password: '{{ device.password }}'
         name: 'GTT-MDR-Blocked-Addresses'
-        static_value: "{{ updated_group_members }}"
-        description: "Suspicious hosts identified by GTT Managed Detection and Response"
+        static_value: []
+        description: "Top-level group for suspicious hosts (GTT MDR)."
         tag: ['GTT MDR']
         commit: false
-      register: result_of_group_creation
+      when: gathered_top_level.gathered | length == 0
+      register: result_of_top_level_creation
 
-    - name: PALO-NGFW Gather existing security rules
+    # -------------------------------------------------------------------------
+    # 2) Gather sub-groups that match "GTT-MDR-Blocked-Addresses-###"
+    # -------------------------------------------------------------------------
+    - name: PALO-NGFW Gather all address groups
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: '*'
+      register: all_address_groups
+
+    - name: Filter out subgroups that match the naming pattern
+      set_fact:
+        existing_subgroups: >-
+          {{
+            all_address_groups.gathered
+            | selectattr('name','match','^GTT-MDR-Blocked-Addresses-[0-9]+$')
+            | list
+          }}
+
+    # -------------------------------------------------------------------------
+    # 3) Ensure at least one subgroup exists, naming them as GTT-MDR-Blocked-Addresses-001, 002, ...
+    # -------------------------------------------------------------------------
+    - name: Determine next subgroup index
+      set_fact:
+        next_index: >-
+          {{
+            (
+              existing_subgroups
+              | map(attribute='name')
+              | map('regex_replace','^GTT-MDR-Blocked-Addresses-','')
+              | map('int')
+              | max
+            ) + 1
+          }}
+      when: existing_subgroups | length > 0
+
+    - name: Create subgroup #1 if none exist
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: 'GTT-MDR-Blocked-Addresses-001'
+        static_value: []
+        description: "Subgroup for suspicious hosts (GTT MDR)."
+        tag: ['GTT MDR']
+        commit: false
+      when: existing_subgroups | length == 0
+      register: result_of_first_subgroup
+
+    - name: Refresh subgroup list if we created the first one
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: '*'
+      register: all_address_groups_after_first
+      when: result_of_first_subgroup is defined and result_of_first_subgroup.changed
+
+    - name: Re-set existing_subgroups if first subgroup was created
+      set_fact:
+        existing_subgroups: >-
+          {{
+            all_address_groups_after_first.gathered
+            | selectattr('name','match','^GTT-MDR-Blocked-Addresses-[0-9]+$')
+            | list
+          }}
+      when: result_of_first_subgroup is defined and result_of_first_subgroup.changed
+
+    # -------------------------------------------------------------------------
+    # 4) Figure out which is the latest subgroup (with the highest ### suffix)
+    # -------------------------------------------------------------------------
+    - name: Find the latest subgroup name
+      set_fact:
+        latest_subgroup_name: >-
+          {{
+            existing_subgroups
+            | map(attribute='name')
+            | map('regex_replace','^GTT-MDR-Blocked-Addresses-','')
+            | map('int')
+            | max
+            | string
+            | regex_replace('^(.*)$','GTT-MDR-Blocked-Addresses-\\1')
+          }}
+
+    - name: Get membership of the latest subgroup
+      set_fact:
+        latest_subgroup_members: "{{ item.static_value | default([]) }}"
+      loop: "{{ existing_subgroups }}"
+      when: item.name == latest_subgroup_name
+
+    # -------------------------------------------------------------------------
+    # 5) If latest_subgroup + new addresses exceed 1400, create next subgroup
+    # -------------------------------------------------------------------------
+    - name: Check if the new addresses would exceed 1400 in latest subgroup
+      set_fact:
+        create_new_subgroup: >-
+          {{
+            (latest_subgroup_members | length) + (relevant_address_objects | length) > 1400
+          }}
+
+    - name: Create next subgroup if needed
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: "GTT-MDR-Blocked-Addresses-{{ '%03d'|format(next_index) }}"
+        static_value: []
+        description: "Subgroup for suspicious hosts (GTT MDR)."
+        tag: ['GTT MDR']
+        commit: false
+      when: create_new_subgroup | bool
+      register: result_of_new_subgroup
+
+    # -------------------------------------------------------------------------
+    # 6) Update whichever subgroup is "latest" to include the new addresses
+    #    (if a new subgroup was created, that becomes the "latest")
+    # -------------------------------------------------------------------------
+    - name: Determine final subgroup name to update
+      set_fact:
+        final_subgroup_name: >-
+          {% if create_new_subgroup %}
+          GTT-MDR-Blocked-Addresses-{{ '%03d'|format(next_index) }}
+          {% else %}
+          {{ latest_subgroup_name }}
+          {% endif %}
+
+    - name: Gather final subgroup membership (because we might have just created it)
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: 'name == "{{ final_subgroup_name }}"'
+      register: final_subgroup_info
+
+    - name: Update final subgroup membership
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: '{{ final_subgroup_name }}'
+        static_value: >-
+          {{
+            ( final_subgroup_info.gathered.0.static_value | default([]) )
+            + relevant_address_objects
+            | unique
+          }}
+        description: "Subgroup for suspicious hosts (GTT MDR)."
+        tag: ['GTT MDR']
+        commit: false
+      register: result_of_final_subgroup_update
+
+    # -------------------------------------------------------------------------
+    # 7) Update top-level group to reference *all subgroups*
+    # -------------------------------------------------------------------------
+    - name: Gather top-level group membership again
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: 'name == "GTT-MDR-Blocked-Addresses"'
+      register: updated_top_level_info
+
+    - name: Build a list of all subgroup names
+      set_fact:
+        all_subgroup_names: "{{ existing_subgroups | map(attribute='name') | list }}"
+      # If we created a brand-new subgroup, that won't be in existing_subgroups yet
+      # so add it manually if needed:
+      when: create_new_subgroup | bool
+      vars:
+        all_subgroup_names: >-
+          {{
+            ( existing_subgroups | map(attribute='name') | list )
+            + ["GTT-MDR-Blocked-Addresses-{{ '%03d'|format(next_index) }}"]
+          }}
+
+    - name: Final top-level membership (all subgroups).  We exclude any direct addresses if you want.
+      set_fact:
+        final_top_level_membership: "{{ all_subgroup_names | default([]) | unique }}"
+
+    - name: Update the top-level group to reference subgroups
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: 'GTT-MDR-Blocked-Addresses'
+        static_value: "{{ final_top_level_membership }}"
+        description: "Top-level group referencing subgroups (GTT MDR)."
+        tag: ['GTT MDR']
+        commit: false
+      register: result_of_top_level_update
+
+    # -------------------------------------------------------------------------
+    # 8) Ensure blocking security rule is in place referencing the top-level group
+    # -------------------------------------------------------------------------
+    - name: PALO-NGFW Gather existing security rules that deny from top-level group
       paloaltonetworks.panos.panos_security_rule:
         provider:
           ip_address: '{{ device.mgmt_address }}'
@@ -166,6 +333,9 @@
       when: gathered_rules.gathered | length == 0
       register: result_of_rule_creation
 
+    # -------------------------------------------------------------------------
+    # 9) Commit if there were changes
+    # -------------------------------------------------------------------------
     - name: PALO-NGFW Commit changes if any changes were made
       paloaltonetworks.panos.panos_commit_firewall:
         provider:
@@ -175,9 +345,17 @@
         admins: ['t3-admin']
         description: 'Blocking MDR-identified malicious hosts.'
         exclude_device_and_network: true
-      when: result_of_object_creation.changed or result_of_group_creation.changed or result_of_rule_creation.changed
-  
+      when: >
+        (
+          (result_of_object_creation is defined and result_of_object_creation.changed)
+          or (result_of_top_level_creation is defined and result_of_top_level_creation.changed)
+          or (result_of_new_subgroup is defined and result_of_new_subgroup.changed)
+          or (result_of_final_subgroup_update is defined and result_of_final_subgroup_update.changed)
+          or (result_of_top_level_update is defined and result_of_top_level_update.changed)
+          or (result_of_rule_creation is defined and result_of_rule_creation.changed)
+        )
+
   rescue:
-      - name: Error handling placeholder task
-        debug:
-          msg: 'The implementation of the current ticket has failed'
+    - name: Error handling placeholder task
+      debug:
+        msg: 'The implementation of the current ticket has failed'
