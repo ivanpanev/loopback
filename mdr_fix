@@ -1,0 +1,183 @@
+- name: PANORAMA Config Tasks
+  block:
+    - name: PALO-NGFW retrieve api_key
+      paloaltonetworks.panos.panos_api_key:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+      register: auth
+
+    # - name: PALO-NGFW Make API call to retrieve high-availability info
+    #   uri:
+    #     url: "https://{{ device.mgmt_address }}/api/?type=op&cmd=<show><high-availability><all></all></high-availability></show>&key={{ auth.api_key }}"
+    #     method: GET
+    #     return_content: yes
+    #     validate_certs: no
+    #   register: ha_response
+
+    # - name: PALO-NGFW Check if HA is enabled
+    #   community.general.xml:
+    #     xmlstring: "{{ ha_response.content }}"
+    #     xpath: "/response/result/enabled"
+    #     content: text
+    #   register: ha_enabled
+
+    # - name: PALO-NGFW Parse XML for 'state' tag
+    #   community.general.xml:
+    #     xmlstring: "{{ ha_response.content }}"
+    #     xpath: "/response/result/group/local-info/state"
+    #     content: text
+    #   register: ha_state
+    #   when: ha_enabled.matches[0]['enabled']
+
+    # - name: PALO-NGFW Handle cases when current member is the passive peer in a HA cluster 
+    #   block: 
+
+    #   - name: PALO-NGFW Parse XML for 'mgmt-ip' tag in peer info
+    #     community.general.xml:
+    #       xmlstring: "{{ ha_response.content }}"
+    #       xpath: "/response/result/group/peer-info/mgmt-ip"
+    #       content: text
+    #     register: peer_mgmt_ip
+
+    #   - name: PALO-NGFW Update provider with the active node's IP
+    #     set_fact:
+    #       device:
+    #         mgmt_address: "{{ peer_mgmt_ip.matches[0]['mgmt-ip'] }}"
+    #         username: "{{ device.username }}"
+    #         password: "{{ device.password }}"
+    #         Ticket: "{{ device.Ticket }}"
+    #         block_ips: "{{ device.block_ips }}"
+
+    #   when: ha_state.matches[0]['state'] == 'passive'
+
+    - name: PALO-NGFW Create tag object 'GTT MDR'
+      paloaltonetworks.panos.panos_tag_object:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: 'GTT MDR'
+        color: 'chestnut'
+        comments: 'GTT Managed Detection and Response'
+
+    - name: PALO-NGFW Gather all address objects
+      paloaltonetworks.panos.panos_address_object:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: '*'
+      register: gathered_address_objects
+
+    - name: PALO-NGFW Create address objects for unconfigured IPs
+      paloaltonetworks.panos.panos_address_object:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: "MDR-BLOCKED-{{ ip | regex_replace('/', 'm') }}"
+        value: "{{ ip }}"
+        description: "Suspicious host identified by GTT Managed Detection and Response"
+        tag: ['GTT MDR']
+        commit: false
+      loop: "{{ device.block_ips }}"
+      loop_control:
+        loop_var: ip
+      when: device.block_ips | length > 0
+      register: result_of_object_creation
+
+    - name: PALO-NGFW Gather the object names of new objects
+      set_fact:
+        relevant_address_objects: "{{ (gathered_address_objects.gathered | selectattr('value', 'in', device.block_ips) | map(attribute='name') | list) +
+                                      (result_of_object_creation.results | selectattr('changed', 'equalto', true) | map(attribute='invocation.module_args.name') | list if result_of_object_creation is defined else []) }}"
+
+    - name: PALO-NGFW Gather current object group
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: 'name == "GTT-MDR-Blocked-Addresses"'
+      register: gathered_object_group
+
+    - name: PALO-NGFW Extract current object group members
+      set_fact:
+        current_group_members: "{{ gathered_object_group.gathered[0].static_value | default([]) }}"
+      when: gathered_object_group.gathered | length > 0
+
+    - name: PALO-NGFW Combine current and new object group members
+      set_fact:
+        updated_group_members: "{{ (current_group_members + relevant_address_objects) | unique }}"
+      when: gathered_object_group.gathered | length > 0
+
+    - name: PALO-NGFW Compile updated object group members when group does not yet exist
+      set_fact:
+        updated_group_members: "{{ (relevant_address_objects) | unique }}"
+      when: gathered_object_group.gathered | length == 0
+
+    - name: PALO-NGFW Create or update object group
+      paloaltonetworks.panos.panos_address_group:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        name: 'GTT-MDR-Blocked-Addresses'
+        static_value: "{{ updated_group_members }}"
+        description: "Suspicious hosts identified by GTT Managed Detection and Response"
+        tag: ['GTT MDR']
+        commit: false
+      register: result_of_group_creation
+
+    - name: PALO-NGFW Gather existing security rules
+      paloaltonetworks.panos.panos_security_rule:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        state: gathered
+        gathered_filter: 'source_ip contains "GTT-MDR-Blocked-Addresses" and action == "deny"'
+      register: gathered_rules
+
+    - name: PALO-NGFW Create an MDR-block rule at first position if it does not exist
+      paloaltonetworks.panos.panos_security_rule:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        rule_name: 'GTT MDR Malicious Hosts'
+        description: "Blocking all malicious hosts identified by GTT's MDR service."
+        tag_name: ['GTT MDR']
+        source_zone: ['any']
+        destination_zone: ['any']
+        source_ip: ['GTT-MDR-Blocked-Addresses']
+        source_user: ['any']
+        destination_ip: ['any']
+        category: ['any']
+        application: ['any']
+        service: ['any']
+        hip_profiles: ['any']
+        action: 'drop'
+        location: 'top'
+        commit: false
+      when: gathered_rules.gathered | length == 0
+      register: result_of_rule_creation
+
+    - name: PALO-NGFW Commit changes if any changes were made
+      paloaltonetworks.panos.panos_commit_firewall:
+        provider:
+          ip_address: '{{ device.mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        admins: ['t3-admin']
+        description: 'Blocking MDR-identified malicious hosts.'
+        exclude_device_and_network: true
+      when: result_of_object_creation.changed or result_of_group_creation.changed or result_of_rule_creation.changed
+  
+  rescue:
+      - name: Error handling placeholder task
+        debug:
+          msg: 'The implementation of the current ticket has failed'
