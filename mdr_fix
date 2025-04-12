@@ -51,198 +51,160 @@
 
     - name: PANORAMA Gather existing object group
       paloaltonetworks.panos.panos_address_group:
+        provider: "{{ panorama_provider }}"
+        device_group: "{{ device_group }}"
+        state: gathered
+        gathered_filter: 'name == "GTT-MDR-Blocked-Addresses"'
+      register: gathered_object_group
+
+    - name: Extract main group components
+      set_fact:
+        main_group_exists: "{{ gathered_object_group.gathered | length > 0 }}"
+        main_group_members: "{{ gathered_object_group.gathered[0].static_value | default([]) if main_group_exists else [] }}"
+        # Split into address objects and subgroups
+        main_group_address_objects: "{{ main_group_members | reject('match', '^GTT-MDR-Blocked-Addresses-\\d+$') | list }}"
+        main_group_subgroups: "{{ main_group_members | select('match', '^GTT-MDR-Blocked-Addresses-\\d+$') | list }}"
+
+    - name: Calculate space in main group for new addresses
+      set_fact:
+        main_group_available: "{{ 1400 - (main_group_address_objects | length) }}"
+      when: main_group_exists
+
+    - name: Split new addresses into chunks
+      set_fact:
+        # Split into addresses that fit in main group + remainder for subgroups
+        addresses_for_main: "{{ relevant_address_objects[0:main_group_available|int] | default([]) }}"
+        addresses_for_subgroups: "{{ relevant_address_objects[main_group_available|int:] | default([]) }}"
+      when: main_group_exists
+
+    - name: Update main group with new addresses (if space)
+      paloaltonetworks.panos.panos_address_group:
+        provider: "{{ panorama_provider }}"
+        device_group: "{{ device_group }}"
+        name: "GTT-MDR-Blocked-Addresses"
+        static_value: "{{ (main_group_address_objects + addresses_for_main + main_group_subgroups) | unique }}"
+        description: "Main group with direct addresses and subgroups"
+        tag: ['GTT MDR']
+        commit: false
+      when: 
+        - main_group_exists
+        - addresses_for_main | length > 0
+
+    - name: Handle new subgroup creation
+      block:
+        - name: Get latest subgroup info
+          set_fact:
+            latest_subgroup: "{{ (main_group_subgroups | sort | last) | default(none) }}"
+        
+        - name: Gather latest subgroup members
+          paloaltonetworks.panos.panos_address_group:
+            provider: "{{ panorama_provider }}"
+            device_group: "{{ device_group }}"
+            state: gathered
+            gathered_filter: 'name == "{{ latest_subgroup }}"'
+          register: subgroup_data
+          when: latest_subgroup is not none
+
+        - name: Calculate remaining capacity in latest subgroup
+          set_fact:
+            subgroup_available: "{{ 1400 - (subgroup_data.gathered[0].static_value | default([]) | length) }}"
+          when: subgroup_data.gathered | length > 0
+
+        - name: Create new subgroups as needed
+          vars:
+            needed_subgroups: "{{ ((addresses_for_subgroups | length - subgroup_available | default(0, true)) / 1400 | float | round(0, 'ceil') | int + 1 }}"
+          loop: "{{ range(0, needed_subgroups | default(1)) }}"
+          block:
+            - name: Create new subgroup
+              paloaltonetworks.panos.panos_address_group:
+                provider: "{{ panorama_provider }}"
+                device_group: "{{ device_group }}"
+                name: "GTT-MDR-Blocked-Addresses-{{ '%03d' % (latest_subgroup_suffix + 1 + item) }}"
+                static_value: "{{ addresses_for_subgroups | slice(item*1400, (item+1)*1400) | list }}"
+                description: "Auto-generated subgroup for blocked addresses"
+                tag: ['GTT MDR']
+                commit: false
+              register: new_subgroup
+
+            - name: Update main group with new subgroup
+              paloaltonetworks.panos.panos_address_group:
+                provider: "{{ panorama_provider }}"
+                device_group: "{{ device_group }}"
+                name: "GTT-MDR-Blocked-Addresses"
+                static_value: "{{ main_group_members + [new_subgroup.name] | unique }}"
+                commit: false
+          when: addresses_for_subgroups | length > 0
+
+      when: 
+        - main_group_exists
+        - addresses_for_subgroups | length > 0
+
+    - name: PANORAMA Gather existing security rules
+      paloaltonetworks.panos.panos_security_rule:
         provider:
           ip_address: '{{ device.panorama_mgmt_address }}'
           username: '{{ device.username }}'
           password: '{{ device.password }}'
         device_group: '{{ device.panorama_device_group }}'
         state: gathered
-        gathered_filter: 'name == "GTT-MDR-Blocked-Addresses"'
-      register: gathered_object_group
+        gathered_filter: 'source_ip contains "GTT-MDR-Blocked-Addresses" and action == "deny"'
+      register: gathered_rules
       delegate_to: localhost
 
-    - name: Initialize main group info
-      set_fact:
-        main_group_exists: "{{ gathered_object_group.gathered | length > 0 }}"
-        main_group_members: "{{ gathered_object_group.gathered[0].static_value | default([]) if main_group_exists else [] }}"
-        subgroups: "{{ main_group_members | select('match', '^GTT-MDR-Blocked-Addresses-\\d+$') | list }}"
-        address_objects_in_main: "{{ main_group_members | reject('match', '^GTT-MDR-Blocked-Addresses-\\d+$') | list }}"
-        current_subgroup: ""
-
-    - name: Migrate address objects to subgroup if needed
-      block:
-        - name: Create initial subgroup
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: 'GTT-MDR-Blocked-Addresses-001'
-            static_value: "{{ address_objects_in_main }}"
-            description: "Initial subgroup for migrated addresses"
-            tag: ['GTT MDR']
-            commit: false
-          register: initial_subgroup
-          when: address_objects_in_main | length > 0
-
-        - name: Update main group with initial subgroup
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: 'GTT-MDR-Blocked-Addresses'
-            static_value: "['GTT-MDR-Blocked-Addresses-001']"
-            description: "Suspicious hosts identified by GTT Managed Detection and Response"
-            tag: ['GTT MDR']
-            commit: false
-          register: update_main_group
-          when: address_objects_in_main | length > 0
-
-        - name: Set current subgroup to initial
-          set_fact:
-            current_subgroup: 'GTT-MDR-Blocked-Addresses-001'
-          when: address_objects_in_main | length > 0
-      when:
-        - main_group_exists
-        - subgroups | length == 0
-        - address_objects_in_main | length > 0
-
-    - name: Determine latest subgroup
-      block:
-        - name: Extract subgroup suffixes
-          set_fact:
-            subgroup_suffixes: "{{ subgroups | map('regex_replace', '^GTT-MDR-Blocked-Addresses-(\\d+)$', '\\1') | map('int') | list }}"
-
-        - name: Get max suffix
-          set_fact:
-            max_suffix: "{{ (subgroup_suffixes | max) | default(0) }}"
-
-        - name: Set current subgroup name
-          set_fact:
-            current_subgroup: "GTT-MDR-Blocked-Addresses-{{ '%03d' % max_suffix }}"
-      when:
-        - main_group_exists
-        - subgroups | length > 0
-
-    - name: Get current subgroup members
-      block:
-        - name: Gather current subgroup info
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            state: gathered
-            gathered_filter: 'name == "{{ current_subgroup }}"'
-          register: current_subgroup_info
-          when: current_subgroup != ""
-
-        - name: Set current subgroup members
-          set_fact:
-            current_subgroup_members: "{{ current_subgroup_info.gathered[0].static_value | default([]) }}"
-          when: current_subgroup_info.gathered | length > 0
-      when: current_subgroup != ""
-
-    - name: Create new subgroup if needed
-      block:
-        - name: Calculate new suffix
-          set_fact:
-            new_suffix: "{{ max_suffix + 1 }}"
-
-        - name: Set new subgroup name
-          set_fact:
-            new_subgroup: "GTT-MDR-Blocked-Addresses-{{ '%03d' % new_suffix }}"
-
-        - name: Create new subgroup
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: '{{ new_subgroup }}'
-            static_value: "{{ relevant_address_objects }}"
-            description: "Subgroup {{ new_suffix }} for blocked addresses"
-            tag: ['GTT MDR']
-            commit: false
-          register: create_subgroup
-
-        - name: Update main group with new subgroup
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: 'GTT-MDR-Blocked-Addresses'
-            static_value: "{{ main_group_members + [new_subgroup] }}"
-            description: "Suspicious hosts identified by GTT Managed Detection and Response"
-            tag: ['GTT MDR']
-            commit: false
-          register: update_main_group
-
-        - name: Update current subgroup
-          set_fact:
-            current_subgroup: '{{ new_subgroup }}'
-      when:
-        - current_subgroup != ""
-        - (current_subgroup_members | length + relevant_address_objects | length) > 1400
-
-    - name: Add to existing subgroup
-      paloaltonetworks.panos.panos_address_group:
+    - name: PANORAMA Create an MDR-block rule at first position if it does not exist
+      paloaltonetworks.panos.panos_security_rule:
         provider:
           ip_address: '{{ device.panorama_mgmt_address }}'
           username: '{{ device.username }}'
           password: '{{ device.password }}'
+        rulebase: pre-rulebase
         device_group: '{{ device.panorama_device_group }}'
-        name: '{{ current_subgroup }}'
-        static_value: "{{ current_subgroup_members + relevant_address_objects }}"
-        description: "Updated subgroup with new blocked addresses"
-        tag: ['GTT MDR']
+        rule_name: 'GTT MDR Malicious Hosts'
+        description: "Blocking all malicious hosts identified by GTT's MDR service."
+        tag_name: ['GTT MDR']
+        source_zone: ['any']
+        destination_zone: ['any']
+        source_ip: ['GTT-MDR-Blocked-Addresses']
+        source_user: ['any']
+        destination_ip: ['any']
+        category: ['any']
+        application: ['any']
+        service: ['any']
+        hip_profiles: ['any']
+        action: 'drop'
+        location: 'top'
         commit: false
-      register: update_subgroup
-      when:
-        - current_subgroup != ""
-        - (current_subgroup_members | length + relevant_address_objects | length) <= 1400
+      when: gathered_rules.gathered | length == 0
+      register: result_of_rule_creation
+      delegate_to: localhost
 
-    - name: Create initial group and subgroup if none exist
-      block:
-        - name: Create initial subgroup
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: 'GTT-MDR-Blocked-Addresses-001'
-            static_value: "{{ relevant_address_objects }}"
-            description: "Initial subgroup for blocked addresses"
-            tag: ['GTT MDR']
-            commit: false
-          register: initial_subgroup
+    - name: PANORAMA Commit changes if any changes were made
+      paloaltonetworks.panos.panos_commit_panorama:
+        admins: ['t3-admin']
+        provider:
+          ip_address: '{{ device.panorama_mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        device_groups: '{{ device.panorama_device_group }}'
+        exclude_device_and_network: true
+        description: 'Blocking MDR-identified malicious hosts.'
+      when: result_of_object_creation.changed or result_of_group_creation.changed or result_of_rule_creation.changed
+      delegate_to: localhost
 
-        - name: Create main group
-          paloaltonetworks.panos.panos_address_group:
-            provider:
-              ip_address: '{{ device.panorama_mgmt_address }}'
-              username: '{{ device.username }}'
-              password: '{{ device.password }}'
-            device_group: '{{ device.panorama_device_group }}'
-            name: 'GTT-MDR-Blocked-Addresses'
-            static_value: "['GTT-MDR-Blocked-Addresses-001']"
-            description: "Suspicious hosts identified by GTT Managed Detection and Response"
-            tag: ['GTT MDR']
-            commit: false
-          register: create_main_group
-      when:
-        - not main_group_exists
-        - relevant_address_objects | length > 0
-
-    # Existing tasks for security rule, commit, and push remain unchanged
+    - name: PANORAMA Push changes to devices if any changes were made
+      paloaltonetworks.panos.panos_commit_push:
+        admins: ['t3-admin']
+        provider:
+          ip_address: '{{ device.panorama_mgmt_address }}'
+          username: '{{ device.username }}'
+          password: '{{ device.password }}'
+        style: 'device group'
+        name: '{{ item }}'
+        description: 'Blocking MDR-identified malicious hosts.'
+        include_template: true
+      when: result_of_object_creation.changed or result_of_group_creation.changed or result_of_rule_creation.changed
+      loop: "{{ device.panorama_push_device_group is string | ternary([device.panorama_push_device_group], device.panorama_push_device_group) }}"
+      delegate_to: localhost
 
   rescue:
     - name: Error handling placeholder task
