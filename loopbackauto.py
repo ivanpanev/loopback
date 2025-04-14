@@ -132,3 +132,12 @@ CPE-HERBA1-8657566-33798485	ansible_host=9.49.188.88 ponid=8717187
           ----------------------------------------------------------------------------------------------------
       delegate_to: localhost
 
+
+
+
+
+CPE-GANG-POASDKPOAS~ # show full-configuration switch auto-network 
+config switch auto-network
+    set mgmt-vlan 1
+    set status enable
+end
