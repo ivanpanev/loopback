@@ -87,3 +87,48 @@ CPE-HERBA1-8681608-33588996	ansible_host=107.811.5.188 ponid=8681608
 CPE-HERBA1-8688009-33797406	ansible_host=107.47.58.94 ponid=8688009
 CPE-HERBA1-8685867-33547717	ansible_host=18.81.106.36 ponid=8685867
 CPE-HERBA1-8657566-33798485	ansible_host=9.49.188.88 ponid=8717187
+
+
+
+
+
+---
+- name: Get auto-network settings
+  hosts: HerbalCPE
+  gather_facts: no
+  serial: 10
+  ignore_unreachable: true
+  vars:
+    ansible_port: 22
+
+  tasks:
+    - name: Show auto-network full-configuration
+      raw: show full-configuration switch auto-network
+      register: auto_net_output
+
+    - name: Parse auto-network settings
+      # This task extracts the 'set status' and 'set mgmt-vlan' lines if present
+      set_fact:
+        auto_network_status: >-
+          {{
+            (auto_net_output.stdout_lines | select('search', '^\\s*set status') | list | first | default(''))
+            | regex_replace('.*set status\\s+(\\S+)', '\\1')
+          }}
+        auto_network_mgmt_vlan: >-
+          {{
+            (auto_net_output.stdout_lines | select('search', '^\\s*set mgmt-vlan') | list | first | default(''))
+            | regex_replace('.*set mgmt-vlan\\s+(\\S+)', '\\1')
+          }}
+
+    - name: Save auto-network data to a file
+      lineinfile:
+        dest: /home/panevii0/ansible/FortiConfigGet/HerbalAutoNetworkOutput
+        create: yes
+        insertafter: EOF
+        line: |
+          Device {{ inventory_hostname }} (PON: {{ ponid }}) with IP {{ ansible_host }} auto-network:
+            status      : {{ auto_network_status }}
+            mgmt-vlan   : {{ auto_network_mgmt_vlan }}
+          ----------------------------------------------------------------------------------------------------
+      delegate_to: localhost
+
