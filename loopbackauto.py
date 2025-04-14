@@ -141,3 +141,27 @@ config switch auto-network
     set mgmt-vlan 1
     set status enable
 end
+
+
+
+
+- name: Parse auto-network settings
+  set_fact:
+    auto_network_status: >-
+      {{
+        (auto_net_output.stdout_lines
+         | select('search', '^\\s*set status')
+         | list
+         | first
+         | default(''))
+         | regex_replace('.*set status\\s+(\\S+)', '\\1')
+      }}
+    auto_network_mgmt_vlan: >-
+      {{
+        (auto_net_output.stdout_lines
+         | select('search', '^\\s*set mgmt-vlan')
+         | list
+         | first
+         | default(''))
+         | regex_replace('.*set mgmt-vlan\\s+(\\S+)', '\\1')
+      }}
