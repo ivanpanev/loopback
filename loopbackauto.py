@@ -1,147 +1,89 @@
-Troubleshooting BGP Issues on Check Point Firewalls
-This guide provides a structured approach to diagnosing and resolving BGP-related issues on Check Point firewalls, including key concepts like the RouteD daemon, BGP states, common issues, commands, and scenarios.
+---
+- name: Get Device Facts
+  hosts: HerbalCPE
+  serial: 10
+  gather_facts: no
+  ignore_unreachable: true
+  vars:
+    ansible_port: 22
+  tasks:
+  - name: gather basic system info
+    raw: get system status
+    register: versionout
 
-1. RouteD Daemon Overview
-The RouteD daemon is Check Point’s dynamic routing process responsible for managing protocols like BGP, OSPF, and RIP. It integrates with the Gaia OS kernel to update the firewall’s routing table based on peer advertisements.
-Key Roles of RouteD:
-    • Establishes and maintains BGP peer sessions.
-    • Exchanges routing updates with neighbors.
-    • Applies routing policies (e.g., route filtering, AS path prepending).
-    • Communicates with the kernel to install best-path routes.
-RouteD Status Checks:
-bash
-Copy
-# Verify RouteD is running  
-ps aux | grep routed  
+  - name: Version set
+    set_fact: 
+      version: "{{ versionout.stdout_lines | select('search', 'Version:') | map('regex_replace', '.*Version:\\s*', '') | first | split(' ') }}"
 
-# Check RouteD service status (Gaia CLI)  
-bgp view  
-routed -s  
-Note: Ensure the dynamic routing license is enabled via cpconfig or the Gaia WebUI.
+  - name: Get users
+    raw: get system admin
+    register: admindata
 
-2. BGP States and Common Issues
-BGP sessions transition through the following states. Understanding these helps pinpoint failures:
-State
-Description
-Common Issues
-Idle
-Initial state; no resources allocated.
-Misconfigured neighbor IP/AS, firewall blocking TCP 179, or RouteD not running.
-Connect
-Attempting to establish a TCP connection.
-Network unreachability, ACLs blocking BGP, or incorrect source interface.
-Active
-Actively trying to connect if the passive (Connect) approach fails.
-Persistent connectivity issues (e.g., routing loops, MTU mismatches).
-OpenSent
-TCP connection established; waiting for OPEN message from peer.
-AS number mismatch, version incompatibility, or invalid BGP parameters.
-OpenConfirm
-OPEN message received; awaiting KEEPALIVE.
-Authentication failures, timer mismatches (hold-time), or packet loss.
-Established
-Peering is active; routes are exchanged.
-Route advertisement failures, flapping, or policy mismatches.
+  - name: Filter user accounts
+    set_fact: 
+      adminlist: "{{ admindata.stdout_lines | select('search', 'name:') | map('regex_replace', '.*name:\\s*', '') | map('regex_replace', ' ', '')}}" 
 
-3. Common BGP Issues
-A. Session Not Establishing
-    • Causes: AS number mismatch, blocked TCP port 179, incorrect neighbor IP, or missing authentication.
-    • Commands:
-      bash
-      Copy
-      # Check BGP neighbors (from Gaia CLI)  
-      bgp view  
-      show ip bgp summary  
-      
-      # Verify connectivity to the peer  
-      ping <peer-ip>  
-      traceroute <peer-ip>  
-B. Routes Not Advertised/Received
-    • Causes: Missing network statements, route filters (prefix-lists/route-maps), or invalid next-hop.
-    • Commands:
-      bash
-      Copy
-      # Enter the routing shell  
-      vtysh  
-      
-      # Check advertised/received routes  
-      show ip bgp neighbors <peer-ip> advertised-routes  
-      show ip bgp neighbors <peer-ip> received-routes  
-C. Route Flapping
-    • Causes: Unstable links, route oscillations, or misconfigured timers.
-    • Commands:
-      bash
-      Copy
-      # Monitor BGP transitions in logs  
-      tail -f /var/log/messages | grep BGP  
-      
-      # Check flapping routes  
-      show ip bgp flap-statistics  
-D. High CPU Usage by RouteD
-    • Causes: Large routing tables, excessive updates, or complex policies.
-    • Commands:
-      bash
-      Copy
-      # Identify CPU usage  
-      top -p $(pgrep routed)  
-      
-      # Reduce logging verbosity if needed  
-      routed -l debug  # Use cautiously in production  
+  - name: Get Admin conifg
+    raw: show system admin
+    register: adminconfig
 
-4. Troubleshooting Commands Cheat Sheet
-Command
-Purpose
-vtysh
-Enter the routing configuration shell.
-show ip bgp summary
-List BGP neighbors and session status.
-show ip bgp neighbors
-Detailed peer status and counters.
-show ip route bgp
-View BGP-learned routes in the routing table.
-clear ip bgp *
-Reset all BGP sessions (use with caution).
-bgp debug <peer-ip> events
-Enable debug logs for a specific peer.
-routed -s
-Check RouteD status and version.
+  - name: Generate config for every user
+    set_fact: 
+      trusthost: "{{ trusthost | default([]) + adminconfig.stdout_lines | regex_findall('edit \"' + item + '\"[\\s\\S]*?next') }}"
+    loop: "{{ adminlist }}"
 
-5. Scenario-Based Troubleshooting
-Scenario 1: BGP Session Stuck in Active State
-    1. Verify IP connectivity between peers (ping, traceroute).
-    2. Check for ACLs/firewall rules blocking TCP 179 on intermediate devices.
-    3. Validate BGP configuration:
-       bash
-       Copy
-       bgp view  
-       show run  
-    4. Ensure the correct source interface is configured for the BGP peer.
-Scenario 2: Routes Missing from Routing Table
-    1. Confirm the route exists in the BGP table:
-       bash
-       Copy
-       show ip bgp  
-    2. Check for route filters (prefix-list, route-map).
-    3. Verify network statements or redistribution settings.
-Scenario 3: High RouteD Memory/CPU Usage
-    1. Limit the number of prefixes received using prefix-list or maximum-prefix.
-    2. Optimize route-maps to reduce complexity.
-    3. Consider aggregating routes.
+  - name: Make dictionary containing Username and Number of trusted hosts
+    set_fact:
+      turstnumber: "{{ turstnumber | default([]) + [{'Username': item | regex_search('edit.*?(\".*?\")', '\\1') | map('regex_replace', '\"', '' ) | first, 'TrushosttNum': item | regex_findall('trusthost') | length }] }}"
+    loop: "{{ trusthost }}"
 
-6. Logging and Diagnostics
-    • Log Location: /var/log/messages (filter for BGP or ROUTED).
-    • Enable debug logging (temporarily):
-      bash
-      Copy
-      routed -l debug  
-      tail -f /var/log/messages  
-    • Collect troubleshooting data:
-      bash
-      Copy
-      routed -d  # Generate a debug dump  
+  - name: Save audit data to a file
+    lineinfile:
+      line: |
+        Device {{ inventory_hostname }} (PON: {{ponid}}) with IP {{ ansible_host }} has following data:
+          Model: {{version[0]}}
+          Version: {{version[1]}}
+          {% for line in turstnumber %}
+        Username: {{ line.Username }}, Trusted Hosts Number: {{ line.TrushosttNum }}
+          {% endfor %}
 
-7. Best Practices
-    • Use prefix-list and route-map to filter unnecessary routes.
-    • Enable BGP authentication (md5 password).
-    • Monitor sessions with tools like routed -s or SmartView Monitor.
-    • Keep Gaia OS and BGP firmware updated.
+          {% for line in turstnumber %}
+            {% if line.TrushosttNum < 1 %}
+        Device {{ inventory_hostname }} with IP {{ ansible_host }} has account with no trusted hosts - Account name: {{ line.Username }}
+            {% endif %}
+          {% endfor %}
+
+          ---------------------------------------------------------------------------------------------------------------------------------------------------
+      insertafter: EOF
+      dest: /home/panevii0/ansible/FortiConfigGet/Herbaloutput
+      create: yes
+    delegate_to: localhost
+
+
+
+
+CPE-HERBA1-8547656-17877855	ansible_host=69.167.101.78 ponid=8547656
+CPE-HERBA1-8550519-33708787	ansible_host=69.71.58.33 ponid=8550519
+CPE-HERBA1-8574716-33709917	ansible_host=69.71.10.10 ponid=8574716
+CPE-HERBA1-8574507-17984875	ansible_host=18.37.47.194 ponid=8574507
+CPE-HERBA1-8574587-17985897	ansible_host=18.7.61.186 ponid=8574587
+CPE-HERBA1-8574598-17985748	ansible_host=69.71.33.46 ponid=8574598
+CPE-HERBA1-8576988-33709958	ansible_host=69.71.33.854 ponid=8576988
+CPE-HERBA1-8595806-33090405	ansible_host=64.158.6.186 ponid=8595806
+CPE-HERBA1-8598470-33106986	ansible_host=69.71.44.198 ponid=8598470
+CPE-HERBA1-8600600-33710008	ansible_host=69.71.45.70 ponid=8600600
+CPE-HERBA1-8607870-33151795	ansible_host=69.71.74.86 ponid=8607870
+CPE-HERBA1-8677495-33891687	ansible_host=197.88.76.18 ponid=8677495
+CPE-HERBA1-8678788-33898081	ansible_host=18.56.8.18 ponid=8678788
+CPE-HERBA1-8678818-33898790	ansible_host=18.56.8.86 ponid=8678818
+CPE-HERBA1-8679156-33899681	ansible_host=69.71.330.54 ponid=8679156
+CPE-HERBA1-8679196-33899878	ansible_host=69.71.330.47 ponid=8679196
+CPE-HERBA1-8651889-33759678	ansible_host=18.881.6.818 ponid=8651889
+CPE-HERBA1-8655840-33780777	ansible_host=18.81.87.170 ponid=8655840
+CPE-HERBA1-8667685-33487709	ansible_host=17.8.1.170 ponid=8667685
+CPE-HERBA1-8664688-33478790	ansible_host=37.857.177.46 ponid=8664688
+CPE-HERBA1-8679587-33509976	ansible_host=119.17.804.74 ponid=8679587
+CPE-HERBA1-8681608-33588996	ansible_host=107.811.5.188 ponid=8681608
+CPE-HERBA1-8688009-33797406	ansible_host=107.47.58.94 ponid=8688009
+CPE-HERBA1-8685867-33547717	ansible_host=18.81.106.36 ponid=8685867
+CPE-HERBA1-8657566-33798485	ansible_host=9.49.188.88 ponid=8717187
