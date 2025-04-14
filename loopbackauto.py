@@ -165,3 +165,20 @@ end
          | default(''))
          | regex_replace('.*set mgmt-vlan\\s+(\\S+)', '\\1')
       }}
+
+
+
+- name: Parse auto-network settings from single string
+  set_fact:
+    auto_network_status: "{{ auto_net_output.stdout | regex_search('(?m)^\\s*set status\\s+(\\S+)', '\\1') | default('') }}"
+    auto_network_mgmt_vlan: "{{ auto_net_output.stdout | regex_search('(?m)^\\s*set mgmt-vlan\\s+(\\S+)', '\\1') | default('') }}"
+
+
+- debug:
+    msg:
+      - "auto_network_status: {{ auto_network_status }}"
+      - "auto_network_mgmt_vlan: {{ auto_network_mgmt_vlan }}"
+
+- name: Show raw output lines
+  debug:
+    var: auto_net_output.stdout_lines
