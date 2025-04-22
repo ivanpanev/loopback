@@ -1,103 +1,75 @@
-{
-  "changed": false,
-  "skip_reason": "Conditional result was False",
-  "_ansible_no_log": false,
-  "nb_res": {
-    "started": 1,
-    "finished": 1,
-    "stdout": "",
-    "stderr": "",
-    "stdout_lines": [],
-    "stderr_lines": [],
-    "ansible_job_id": "702234236297.5059",
-    "results_file": "/home/tier3.global.ip/.ansible_async/702234236297.5059",
-    "content_length": "52",
-    "cookies": {},
-    "vary": "HX-Request, Cookie, origin",
-    "x_content_type_options": "nosniff",
-    "connection": "close",
-    "content": "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}",
-    "json": {
-      "count": 0,
-      "previous": null,
-      "results": [],
-      "next": null
-    },
-    "msg": "OK (52 bytes)",
-    "status": 200,
-    "referrer_policy": "same-origin",
-    "elapsed": 0,
-    "invocation": {
-      "module_args": {
-        "force": false,
-        "remote_src": false,
-        "status_code": [
-          200
-        ],
-        "owner": null,
-        "body_format": "raw",
-        "client_key": null,
-        "group": null,
-        "use_proxy": true,
-        "unix_socket": null,
-        "unsafe_writes": false,
-        "serole": null,
-        "setype": null,
-        "follow_redirects": "safe",
-        "unredirected_headers": [],
-        "return_content": true,
-        "method": "GET",
-        "ca_path": null,
-        "body": null,
-        "timeout": 30,
-        "src": null,
-        "dest": null,
-        "selevel": null,
-        "force_basic_auth": false,
-        "removes": null,
-        "http_agent": "ansible-httpget",
-        "use_gssapi": false,
-        "url_password": null,
-        "url": "https://netbox.gt-t.net/api/dcim/devices/?role_id=477&cf_cmd_gnid=2498163",
-        "seuser": null,
-        "client_cert": null,
-        "creates": null,
-        "headers": {
-          "Accept": "application/json",
-          "Authorization": "Token 518f3d24e8fe36f88faececc8837283c90d75f17"
-        },
-        "mode": null,
-        "url_username": null,
-        "attributes": null,
-        "validate_certs": false
-      }
-    },
-    "cross_origin_opener_policy": "same-origin",
-    "content_type": "application/json",
-    "date": "Tue, 22 Apr 2025 13:37:43 GMT",
-    "x_frame_options": "SAMEORIGIN",
-    "url": "https://netbox.gt-t.net/api/dcim/devices/?role_id=477&cf_cmd_gnid=2498163",
-    "changed": false,
-    "server": "nginx/1.20.1",
-    "x_request_id": "3e3f292d-82ab-4662-8604-e49e3653bf6e",
-    "allow": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS",
-    "redirected": false,
-    "cookies_string": "",
-    "failed": false,
-    "attempts": 1,
-    "nb_job": {
-      "ansible_job_id": "702234236297.5059",
-      "started": 1,
-      "failed": false,
-      "finished": 0,
-      "results_file": "/home/tier3.global.ip/.ansible_async/702234236297.5059",
-      "changed": true,
-      "failed_when_result": false,
-      "role_id": "477",
-      "ansible_loop_var": "role_id"
-    },
-    "ansible_loop_var": "nb_job"
-  },
-  "ansible_loop_var": "nb_res",
-  "msg": "Failed to template loop_control.label: 'dict object' has no attribute 'role_id'"
-}
+---
+# Executed once per GNID
+# Delegation rules:
+#   • *All* NetBox calls → 10.160.2.22 (netbox_delegate)
+#   • Firewall tasks later will use role‑based delegate_host
+
+- name: Initialise match list
+  set_fact:
+    ip_matches: []
+
+# 1. Fire off async NetBox queries (one per role)
+- name: Query NetBox for GNID {{ gnid }} in role {{ role_id }}
+  uri:
+    url: "{{ netbox_base }}{{ role_matrix[role_id].endpoint }}/?role_id={{ role_id }}&cf_cmd_gnid={{ gnid }}"
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: no            # change back to 'yes' if your CA is trusted
+    return_content: yes
+  loop: "{{ role_matrix.keys() | list }}"
+  loop_control:
+    loop_var: role_id             # unique loop var for each iteration
+    label: "role {{ role_id }}"
+  delegate_to: "{{ netbox_delegate }}"    # delegate NetBox access to 10.160.2.22
+  async: 30
+  poll: 0
+  throttle: 10
+  register: nb_async
+  failed_when: false              # 0‑result lookups are not errors
+
+# 2. Wait for all async NetBox responses
+- name: Wait for NetBox replies
+  async_status:
+    jid: "{{ nb_job.ansible_job_id }}"
+  register: nb_results            # contains .results (one element per role)
+  until: nb_results.finished
+  retries: 60
+  delay: 1
+  loop: "{{ nb_async.results }}"
+  loop_control:
+    loop_var: nb_job              # keep track of individual job results
+    label: "role {{ nb_job.role_id }}"  # This is now correctly accessed
+  delegate_to: "{{ netbox_delegate }}"    # still delegate to the proxy host
+
+# 3. Collect every hit (could be 0, 1, or 2 hits per role)
+- name: Collect NetBox hits
+  set_fact:
+    ip_matches: >-
+      {{ ip_matches
+         + (nb_res.result.json.results | default([])
+            | map('combine',
+                  { 'role_id': nb_res.result.invocation.module_args.url
+                                 .split('role_id=')[1].split('&')[0] })
+            | list) }}
+  when: (nb_res.result.json.count | default(0) | int) > 0
+  loop: "{{ nb_results.results }}"
+  loop_control:
+    loop_var: nb_res               # use `nb_res` for each result object from async_status
+    label: "role {{ nb_res.role_id }}"  # Label works because we've retained the `role_id`
+
+# 4. Append to global list with the correct firewall delegate host
+- name: Append matches to global firewalls list
+  set_fact:
+    firewalls: "{{ firewalls + new_entries }}"
+  vars:
+    new_entries: >-
+      {{
+        ip_matches
+        | map('combine',
+              {
+                'gnid'         : gnid,
+                'ip'           : (item.primary_ip4.address.split('/'))[0],
+                'delegate_host': role_matrix[item.role_id].delegate
+              }) | list
+      }}
