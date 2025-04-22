@@ -219,3 +219,115 @@ ha_check.yml
           ha_pairs: "{{ ha_pairs }}"
           standalones: "{{ standalones }}"
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+
+- name: Read Devices Data From Netbox
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Get vault passwords
+      ansible.builtin.set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
+
+    - name: Netbox Palo Estate Retreival Task
+      ansible.builtin.script:
+        cmd: read_devices_from_netbox.py
+        executable: /usr/bin/python3
+      environment:
+        NETBOX_TOKEN: "{{ vault.netbox_soc_token }}"
+      register: logNewNetboxDataVariable
+      changed_when: false
+      delegate_to: 10.160.2.22
+
+
+
+
+
+
+
+
+    - name: Get vault passwords
+      set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
+      delegate_to: localhost
