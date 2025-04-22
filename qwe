@@ -212,3 +212,177 @@ Edit
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ha_check.yml
+---
+###############################################################################
+# Play 1 – Build a dynamic inventory, injecting device credentials
+###############################################################################
+- name: Build dynamic inventory for HA checks
+  hosts: localhost
+  gather_facts: false
+  vars:
+    firewalls: "{{ tower_workflow_job_template.inputs.firewalls }}"
+
+  pre_tasks:
+    - name: Pull device credentials from Hashi Vault
+      ansible.builtin.set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
+
+  tasks:
+    - name: Register firewalls as inventory hosts
+      ansible.builtin.add_host:
+        name: "{{ item.ip }}"
+        ansible_host: "{{ item.ip }}"
+        delegate_host: "{{ item.delegate_host }}"
+        groups: firewalls_dyn
+        ansible_user:     "{{ vault.pan_username }}"
+        ansible_password: "{{ vault.pan_password }}"
+        vars:
+          gnid: "{{ item.gnid }}"
+          role_id: "{{ item.role_id }}"
+      loop: "{{ firewalls }}"
+
+###############################################################################
+# Play 2 – Parallel HA discovery (delegated via jump hosts where required)
+###############################################################################
+- name: Collect HA state in parallel
+  hosts: firewalls_dyn
+  gather_facts: false
+  serial: 50            # safety‑cap; raise/lower as you see fit
+  vars:
+    vault: "{{ hostvars['localhost'].vault }}"
+    pan_provider:
+      ip_address: "{{ inventory_hostname }}"
+      username:   "{{ vault.pan_username }}"
+      password:   "{{ vault.pan_password }}"
+      port: 443
+      timeout: 30
+
+  tasks:
+    - name: Fetch HA facts
+      paloaltonetworks.panos.panos_facts:
+        provider: "{{ pan_provider }}"
+        gather_subset:
+          - ha
+      delegate_to: "{{ delegate_host }}"
+      register: ha_info
+      no_log: true
+
+###############################################################################
+# Play 3 – Aggregate results and publish ha_pairs / standalones
+###############################################################################
+- name: Aggregate HA topology
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ha_raw: "{{ hostvars | dict2items
+                 | selectattr('value.ha_info', 'defined') | list }}"
+
+  tasks:
+    - name: Build lists
+      ansible.builtin.set_fact:
+        ha_pairs: >-
+          {{
+            ha_raw
+            | selectattr('value.ha_info.ansible_facts.panos_ha_enabled', 'defined')
+            | groupby('value.ha_info.ansible_facts.panos_ha_peer_ip')
+            | map('list') | list
+          }}
+        standalones: >-
+          {{
+            ha_raw
+            | rejectattr('value.ha_info.ansible_facts.panos_ha_enabled', 'defined')
+            | map(attribute='key') | list
+          }}
+
+    - name: Publish facts to workflow
+      ansible.builtin.set_stats:
+        data:
+          ha_pairs: "{{ ha_pairs }}"
+          standalones: "{{ standalones }}"
