@@ -1,3 +1,33 @@
+0  Inventory (or group_vars/all.yml)
+
+
+# group_vars/all.yml
+netbox_base:     "https://netbox.example/api/"
+netbox_delegate: "10.160.2.22"          # host that can reach NetBox
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+netbox_lookup.yml  (Job Template #1)
+
 # netbox_lookup.yml
 ---
 - name: Resolve GNIDs → IP/role list
@@ -5,13 +35,15 @@
   gather_facts: false
 
   pre_tasks:
-    - name: Pull the (only) NetBox secret from Vault
+    # only the secret token is fetched from Vault
+    - name: Pull NetBox token from Hashi Vault
       ansible.builtin.set_fact:
-        netbox_token: "{{ lookup('hashi_vault', 'secret=ansible/data/tss netbox_soc_token') }}"
+        netbox_token: >-
+          {{ lookup('hashi_vault', 'secret=ansible/data/tss netbox_soc_token') }}
       no_log: true
 
   roles:
-    - netbox_lookup            # NetBox delegate + base URL come from inventory
+    - netbox_lookup                    # NetBox delegate + base URL come from inventory
 
 
 
@@ -28,20 +60,46 @@
 
 
 
+
+
+
+
+
+
+2  roles/netbox_lookup/vars/main.yml
+---
+# Device‑role → NetBox endpoint AND *firewall* delegate host
+role_matrix:
+  "226": { endpoint: "virtualization/virtual-machines", delegate: "localhost" }
+  "136": { endpoint: "virtualization/virtual-machines", delegate: "localhost" }
+  "477": { endpoint: "dcim/devices",                   delegate: "localhost" }
+  "478": { endpoint: "dcim/devices",                   delegate: "jumphost-fw" }
+
+
+
+
+
+
+
+
+
+
+3  roles/netbox_lookup/tasks/main.yml (unchanged)
+yaml
+Copy
+Edit
 
 ---
-# Runs once on the control node (AWX EE pod)
-
 - name: Turn newline‑separated GNIDs into a clean list
-  ansible.builtin.set_fact:
+  set_fact:
     gnid_list: >-
       {{ gnid_block.splitlines()
                    | map('trim')
                    | reject('equalto','') | list }}
-    firewalls: []                              # accumulator
+    firewalls: []
 
 - name: NetBox‑lookup each GNID
-  ansible.builtin.include_tasks:
+  include_tasks:
     file: lookup_one_gnid.yml
     apply:
       vars:
@@ -50,8 +108,8 @@
   loop_control:
     label: "GNID {{ item }}"
 
-- name: Expose firewalls list to the workflow context
-  ansible.builtin.set_stats:
+- name: Expose firewalls to workflow
+  set_stats:
     data:
       firewalls: "{{ firewalls }}"
 
@@ -76,16 +134,25 @@
 
 
 
----
-# Executed once per GNID.  May append 0‑N entries to the shared `firewalls`.
 
-- name: Initialise match container
-  ansible.builtin.set_fact:
+
+4  roles/netbox_lookup/tasks/lookup_one_gnid.yml
+yaml
+Copy
+Edit
+
+
+
+---
+# Executed once per GNID
+
+- name: Initialise match list
+  set_fact:
     ip_matches: []
 
-# 1 ── Fire off one async URI call per device role
+# ── 1. Fire off async calls *from the NetBox proxy host* ─────────────────────
 - name: Query NetBox for GNID {{ gnid }} in role {{ role_id }}
-  ansible.builtin.uri:
+  uri:
     url: "{{ netbox_base }}{{ role_matrix[role_id].endpoint }}/?role_id={{ role_id }}&cf_cmd_gnid={{ gnid }}"
     headers:
       Authorization: "Token {{ netbox_token }}"
@@ -95,7 +162,7 @@
   loop: "{{ role_matrix.keys() | list }}"
   loop_control:
     loop_var: role_id
-  delegate_to: "{{ netbox_delegate }}"
+  delegate_to: "{{ netbox_delegate }}"     # ← single host with NetBox reachability
   async: 30
   poll: 0
   throttle: 10
@@ -103,7 +170,7 @@
   failed_when: false
 
 - name: Wait for NetBox replies
-  ansible.builtin.async_status:
+  async_status:
     jid: "{{ item.ansible_job_id }}"
   register: nb_results
   until: nb_results.finished
@@ -114,24 +181,22 @@
     label: "{{ item._ansible_item_label }}"
   delegate_to: "{{ netbox_delegate }}"
 
-# 2 ── Collect *all* hits (0, 1 or 2 per GNID)
-- name: Collate NetBox hits
-  ansible.builtin.set_fact:
+# ── 2. Collect every hit (0–N) ───────────────────────────────────────────────
+- name: Collect NetBox hits
+  set_fact:
     ip_matches: >-
       {{ ip_matches
          + (item.result.json.results | default([])
             | map('combine',
                   { 'role_id': item.result.invocation.module_args.url
-                                  .split('role_id=')[1].split('&')[0] })
+                                 .split('role_id=')[1].split('&')[0] })
             | list) }}
   when: (item.result.json.count | default(0) | int) > 0
   loop: "{{ nb_results.results }}"
-  loop_control:
-    label: "{{ item._ansible_item_label }}"
 
-# 3 ── Append each match to the GLOBAL list
-- name: Append GNID {{ gnid }} matches to global list
-  ansible.builtin.set_fact:
+# ── 3. Append to global list with the correct *firewall* delegate host ───────
+- name: Append matches to global firewalls list
+  set_fact:
     firewalls: "{{ firewalls + new_entries }}"
   vars:
     new_entries: >-
@@ -139,119 +204,11 @@
         ip_matches
         | map('combine',
               {
-                'gnid'        : gnid,
-                'ip'          : (item.primary_ip4.address.split('/'))[0],
+                'gnid'         : gnid,
+                'ip'           : (item.primary_ip4.address.split('/'))[0],
                 'delegate_host': role_matrix[item.role_id].delegate
               }) | list
       }}
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ha_check.yml
----
-###############################################################################
-# Play 1 – Build a dynamic inventory, injecting device credentials
-###############################################################################
-- name: Build dynamic inventory for HA checks
-  hosts: localhost
-  gather_facts: false
-  vars:
-    firewalls: "{{ tower_workflow_job_template.inputs.firewalls }}"
-
-  pre_tasks:
-    - name: Pull device credentials from Hashi Vault
-      ansible.builtin.set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
-
-  tasks:
-    - name: Register firewalls as inventory hosts
-      ansible.builtin.add_host:
-        name: "{{ item.ip }}"
-        ansible_host: "{{ item.ip }}"
-        delegate_host: "{{ item.delegate_host }}"
-        groups: firewalls_dyn
-        ansible_user:     "{{ vault.pan_username }}"
-        ansible_password: "{{ vault.pan_password }}"
-        vars:
-          gnid: "{{ item.gnid }}"
-          role_id: "{{ item.role_id }}"
-      loop: "{{ firewalls }}"
-
-###############################################################################
-# Play 2 – Parallel HA discovery (delegated via jump hosts where required)
-###############################################################################
-- name: Collect HA state in parallel
-  hosts: firewalls_dyn
-  gather_facts: false
-  serial: 50            # safety‑cap; raise/lower as you see fit
-  vars:
-    vault: "{{ hostvars['localhost'].vault }}"
-    pan_provider:
-      ip_address: "{{ inventory_hostname }}"
-      username:   "{{ vault.pan_username }}"
-      password:   "{{ vault.pan_password }}"
-      port: 443
-      timeout: 30
-
-  tasks:
-    - name: Fetch HA facts
-      paloaltonetworks.panos.panos_facts:
-        provider: "{{ pan_provider }}"
-        gather_subset:
-          - ha
-      delegate_to: "{{ delegate_host }}"
-      register: ha_info
-      no_log: true
-
-###############################################################################
-# Play 3 – Aggregate results and publish ha_pairs / standalones
-###############################################################################
-- name: Aggregate HA topology
-  hosts: localhost
-  gather_facts: false
-  vars:
-    ha_raw: "{{ hostvars | dict2items
-                 | selectattr('value.ha_info', 'defined') | list }}"
-
-  tasks:
-    - name: Build lists
-      ansible.builtin.set_fact:
-        ha_pairs: >-
-          {{
-            ha_raw
-            | selectattr('value.ha_info.ansible_facts.panos_ha_enabled', 'defined')
-            | groupby('value.ha_info.ansible_facts.panos_ha_peer_ip')
-            | map('list') | list
-          }}
-        standalones: >-
-          {{
-            ha_raw
-            | rejectattr('value.ha_info.ansible_facts.panos_ha_enabled', 'defined')
-            | map(attribute='key') | list
-          }}
-
-    - name: Publish facts to workflow
-      ansible.builtin.set_stats:
-        data:
-          ha_pairs: "{{ ha_pairs }}"
-          standalones: "{{ standalones }}"
