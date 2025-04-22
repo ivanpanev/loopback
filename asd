@@ -1,142 +1,68 @@
-roles/netbox_lookup/vars/main.yml
-
 ---
-# Map each NetBox device‑role ID to its Netbox API endpoint
-# and the Ansible "delegate_to" host we must reach the FW through
-role_matrix:
-  "226":
-    endpoint: "virtualization/virtual-machines"
-    delegate: "localhost"
-  "136":
-    endpoint: "virtualization/virtual-machines"
-    delegate: "localhost"
-  "477":
-    endpoint: "dcim/devices"
-    delegate: "localhost"
-  "478":
-    endpoint: "dcim/devices"
-    delegate: "jumphost-fw"     # change to your jump‑host FQDN
+# Executed once per GNID
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-roles/netbox_lookup/tasks/main.yml
-
----
-# Entry‑point for the role.  Runs ONCE on the AWX EE node.
-
-# `gnid_block` is the *multi‑line text* Survey variable.
-- name: Turn newline‑separated GNIDs into a clean list
-  set_fact:
-    gnid_list: >-
-      {{ gnid_block.splitlines()
-                   | map('trim')
-                   | reject('equalto', '')       # drop blank lines
-                   | list }}
-    firewalls: []                                 # global accumulator
-
-# Loop over the GNIDs by including the task‑file
-- name: NetBox‑lookup each GNID
-  include_tasks:
-    file: lookup_one_gnid.yml
-    apply:
-      vars:
-        gnid: "{{ item }}"
-  loop: "{{ gnid_list }}"
-  loop_control:
-    label: "GNID {{ item }}"
-
-# Make the list available to downstream workflow steps
-- name: Expose firewalls fact to the workflow context
-  set_stats:
-    data:
-      firewalls: "{{ firewalls }}"
-
-
-
-
-
-
-
-
-roles/netbox_lookup/tasks/lookup_one_gnid.yml
-
----
-# Executed ONCE for the current GNID.
-# It may add *one or many* entries to the shared `firewalls` list.
-
-- name: Start with an empty match list
+- name: Initialise match list
   set_fact:
     ip_matches: []
 
-# ── 1. Query NetBox for every allowed role (async to go faster) ───────────────
+# 1. Async calls from the NetBox proxy host
 - name: Query NetBox for GNID {{ gnid }} in role {{ role_id }}
   uri:
     url: "{{ netbox_base }}{{ role_matrix[role_id].endpoint }}/?role_id={{ role_id }}&cf_cmd_gnid={{ gnid }}"
     headers:
       Authorization: "Token {{ netbox_token }}"
       Accept: "application/json"
-    validate_certs: yes
+    validate_certs: no
     return_content: yes
   loop: "{{ role_matrix.keys() | list }}"
   loop_control:
     loop_var: role_id
-  register: netbox_async
-  async: 30
+  delegate_to: "{{ netbox_delegate }}"
+  async: 3
   poll: 0
-  throttle: 10                # at most 10 calls in flight
+  #throttle: 3
+  register: nb_async
   failed_when: false
 
 - name: Wait for NetBox replies
   async_status:
     jid: "{{ item.ansible_job_id }}"
-  register: netbox_results
-  until: netbox_results.finished
+  register: nb_results
+  until: nb_results.finished
   retries: 50
   delay: 1
-  loop: "{{ netbox_async.results }}"
+  loop: "{{ nb_async.results }}"
   loop_control:
     label: "{{ item._ansible_item_label }}"
+  delegate_to: "{{ netbox_delegate }}"
 
-# ── 2. Collect every hit (could be 0, 1 or 2) into ip_matches ────────────────
-- name: Add any devices we found for this role
+# 2. Collect every hit
+- name: Collect NetBox hits
   set_fact:
     ip_matches: >-
       {{ ip_matches
          + (item.result.json.results | default([])
-             | map('combine',
-                   {
-                     'role_id': item.result.invocation.module_args.url
-                                  .split('role_id=')[1].split('&')[0] })
-             | list) }}
-  when: item.result.json.count | default(0) | int > 0
-  loop: "{{ netbox_results.results }}"
-  loop_control:
-    label: "{{ item._ansible_item_label }}"
+            | map('combine',
+                  { 'role_id': item.result.invocation.module_args.url
+                                 .split('role_id=')[1].split('&')[0] })
+            | list) }}
+  when: (item.result.json.count | default(0) | int) > 0
+  loop: "{{ nb_results.results }}"
 
-# ── 3. Append one dict per firewall to the GLOBAL list ───────────────────────
-- name: Merge matches into the global `firewalls` fact
+# 3. Append to global list with the correct firewall delegate host
+- name: Append matches to global firewalls list
   set_fact:
     firewalls: "{{ firewalls + new_entries }}"
   vars:
     new_entries: >-
       {{
-        ip_matches | map('combine',
-          {
-            'gnid'        : gnid,
-            'ip'          : (item.primary_ip4.address.split('/'))[0],
-            'delegate_host': role_matrix[item.role_id].delegate
-          }) | list
+        ip_matches
+        | map('combine',
+              {
+                'gnid'         : gnid,
+                'ip'           : (item.primary_ip4.address.split('/'))[0],
+                'delegate_host': role_matrix[item.role_id].delegate
+              }) | list
       }}
 
 
@@ -154,70 +80,13 @@ roles/netbox_lookup/tasks/lookup_one_gnid.yml
 
 
 
-ha_check.yml
 
----
-# ha_check.yml – second job‑template in AWX.
-# Consumes the `firewalls` fact produced by netbox_lookup
-# and outputs `ha_pairs` + `standalones` for later jobs.
 
-- name: Discover HA topology of all resolved firewalls
-  hosts: localhost
-  gather_facts: false
 
-  vars:
-    firewalls: "{{ tower_workflow_job_template.inputs.firewalls }}"
 
-  tasks:
-    # ── Build a transient inventory of every firewall ─────────────────────────
-    - name: Register dynamic hosts
-      add_host:
-        name: "{{ item.ip }}"
-        ansible_host: "{{ item.ip }}"
-        delegate_host: "{{ item.delegate_host }}"
-        vars:
-          gnid: "{{ item.gnid }}"
-          role_id: "{{ item.role_id }}"
-      loop: "{{ firewalls }}"
 
-    # ── Gather HA facts in parallel ──────────────────────────────────────────
-    - name: Get HA state from each firewall
-      vars:
-        ansible_network_os: paloaltonetworks.panos.panos
-      panos_facts:
-        gather_subset:
-          - ha
-      delegate_to: "{{ hostvars[item.ip].delegate_host }}"
-      loop: "{{ firewalls }}"
-      loop_control:
-        loop_var: item
-      register: ha_facts
 
-    # ── Post‑process into pairs and stand‑alones ─────────────────────────────
-    - name: Build ha_pairs and standalones lists
-      set_fact:
-        ha_pairs: >-
-          {{
-            ha_facts.results
-            | selectattr('ansible_facts.panos_ha_enabled', 'defined')
-            | groupby('ansible_facts.panos_ha_peer_ip')
-            | map('list')
-            | list
-          }}
-        standalones: >-
-          {{
-            ha_facts.results
-            | rejectattr('ansible_facts.panos_ha_enabled', 'defined')
-            | map(attribute='item')
-            | list
-          }}
 
-    # ── Hand off to the next workflow node ──────────────────────────────────
-    - name: Expose HA topology facts
-      set_stats:
-        data:
-          ha_pairs: "{{ ha_pairs }}"
-          standalones: "{{ standalones }}"
 
 
 
@@ -237,97 +106,104 @@ ha_check.yml
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
----
-
-
-- name: Read Devices Data From Netbox
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Get vault passwords
-      ansible.builtin.set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
-
-    - name: Netbox Palo Estate Retreival Task
-      ansible.builtin.script:
-        cmd: read_devices_from_netbox.py
-        executable: /usr/bin/python3
-      environment:
-        NETBOX_TOKEN: "{{ vault.netbox_soc_token }}"
-      register: logNewNetboxDataVariable
-      changed_when: false
-      delegate_to: 10.160.2.22
-
-
-
-
-
-
-
-
-    - name: Get vault passwords
-      set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
-      delegate_to: localhost
+{
+  "started": 1,
+  "finished": 1,
+  "stdout": "",
+  "stderr": "",
+  "stdout_lines": [],
+  "stderr_lines": [],
+  "ansible_job_id": "2550675463.2430",
+  "results_file": "/home/tier3.global.ip/.ansible_async/2550675463.2430",
+  "content_length": "52",
+  "cookies": {},
+  "vary": "HX-Request, Cookie, origin",
+  "x_content_type_options": "nosniff",
+  "connection": "close",
+  "content": "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}",
+  "json": {
+    "count": 0,
+    "previous": null,
+    "results": [],
+    "next": null
+  },
+  "msg": "Failed to template loop_control.label: 'dict object' has no attribute '_ansible_item_label'",
+  "status": 200,
+  "referrer_policy": "same-origin",
+  "elapsed": 0,
+  "invocation": {
+    "module_args": {
+      "force": false,
+      "remote_src": false,
+      "status_code": [
+        200
+      ],
+      "owner": null,
+      "body_format": "raw",
+      "client_key": null,
+      "group": null,
+      "use_proxy": true,
+      "unix_socket": null,
+      "unsafe_writes": false,
+      "serole": null,
+      "setype": null,
+      "follow_redirects": "safe",
+      "unredirected_headers": [],
+      "return_content": true,
+      "method": "GET",
+      "ca_path": null,
+      "body": null,
+      "timeout": 30,
+      "src": null,
+      "dest": null,
+      "selevel": null,
+      "force_basic_auth": false,
+      "removes": null,
+      "http_agent": "ansible-httpget",
+      "use_gssapi": false,
+      "url_password": null,
+      "url": "https://netbox.gt-t.net/api/virtualization/virtual-machines/?role_id=226&cf_cmd_gnid=123123123123",
+      "seuser": null,
+      "client_cert": null,
+      "creates": null,
+      "headers": {
+        "Accept": "application/json",
+        "Authorization": "Token 518f3d24e8fe36f88faececc8837283c90d75f17"
+      },
+      "mode": null,
+      "url_username": null,
+      "attributes": null,
+      "validate_certs": true
+    }
+  },
+  "cross_origin_opener_policy": "same-origin",
+  "content_type": "application/json",
+  "date": "Tue, 22 Apr 2025 10:53:43 GMT",
+  "x_frame_options": "SAMEORIGIN",
+  "url": "https://netbox.gt-t.net/api/virtualization/virtual-machines/?role_id=226&cf_cmd_gnid=123123123123",
+  "changed": false,
+  "server": "nginx/1.20.1",
+  "x_request_id": "30e4e09f-ff41-4554-b829-5ed552073c8d",
+  "allow": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS",
+  "redirected": false,
+  "cookies_string": "",
+  "_ansible_no_log": false,
+  "attempts": 1,
+  "item": {
+    "ansible_job_id": "2550675463.2430",
+    "started": 1,
+    "failed": false,
+    "finished": 0,
+    "results_file": "/home/tier3.global.ip/.ansible_async/2550675463.2430",
+    "changed": true,
+    "failed_when_result": false,
+    "role_id": "226",
+    "ansible_loop_var": "role_id"
+  },
+  "ansible_loop_var": "item",
+  "_ansible_delegated_vars": {
+    "ansible_host": "10.160.2.22",
+    "ansible_port": null,
+    "ansible_user": "tier3.global.ip"
+  }
+}
