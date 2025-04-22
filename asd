@@ -207,3 +207,20 @@
     "ansible_user": "tier3.global.ip"
   }
 }
+
+
+
+
+
+
+
+
+
+
+TASK [netbox_lookup : Wait for NetBox replies] *********************************
+[WARNING]: The loop variable 'item' is already in use. You should set the
+`loop_var` value in the `loop_control` option for the task to something else to
+avoid variable collisions and unexpected behavior.
+failed: [localhost -> 10.160.2.22] (item={'ansible_job_id': '2550675463.2430', 'started': 1, 'failed': False, 'finished': 0, 'results_file': '/home/tier3.global.ip/.ansible_async/2550675463.2430', 'changed': True, 'failed_when_result': False, 'role_id': '226', 'ansible_loop_var': 'role_id'}) => {"allow": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS", "ansible_job_id": "2550675463.2430", "ansible_loop_var": "item", "attempts": 1, "changed": false, "connection": "close", "content": "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}", "content_length": "52", "content_type": "application/json", "cookies": {}, "cookies_string": "", "cross_origin_opener_policy": "same-origin", "date": "Tue, 22 Apr 2025 10:53:43 GMT", "elapsed": 0, "finished": 1, "item": {"ansible_job_id": "2550675463.2430", "ansible_loop_var": "role_id", "changed": true, "failed": false, "failed_when_result": false, "finished": 0, "results_file": "/home/tier3.global.ip/.ansible_async/2550675463.2430", "role_id": "226", "started"…
+failed: [localhost -> 10.160.2.22] (item={'ansible_job_id': '429176881566.2723', 'started': 1, 'failed': False, 'finished': 0, 'results_file': '/home/tier3.global.ip/.ansible_async/429176881566.2723', 'changed': True, 'failed_when_result': False, 'role_id': '136', 'ansible_loop_var': 'role_id'}) => {"allow": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS", "ansible_job_id": "429176881566.2723", "ansible_loop_var": "item", "attempts": 1, "changed": false, "connection": "close", "content": "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}", "content_length": "52", "content_type": "application/json", "cookies": {}, "cookies_string": "", "cross_origin_opener_policy": "same-origin", "date": "Tue, 22 Apr 2025 10:53:45 GMT", "elapsed": 0, "finished": 1, "item": {"ansible_job_id": "429176881566.2723", "ansible_loop_var": "role_id", "changed": true, "failed": false, "failed_when_result": false, "finished": 0, "results_file": "/home/tier3.global.ip/.ansible_async/429176881566.2723", "role_id": "136",…
+failed: [localhost -> 10.160.2.22] (item={'ansible_job_id': '746826806558.3025', 'started': 1, 'failed': False, 'finished': 0, 'results_file': '/home/tier3.global.ip/.ansible_async/746826806558.3025', 'changed': True, 'failed_when_result': False, 'role_id': '477', 'ansible_loop_var': 'role_id'}) => {"allow": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS", "ansible_job_id": "746826806558.3025", "ansible_loop_var": "item", "attempts": 1, "changed": false, "connection": "close", "content": "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}", "content_length": "52", "content_type": "application/json", "cookies": {}, "cookies_string": "", "cross_origin_opener_policy": "same-origin", "date": "Tue, 22 Apr 2025 10:53:46 GMT", "elapsed": 0, "finished": 1, "item": {"ansible_job_id": "746826806558.3025", "ansible_loop_var": "role_id", "changed": true, "failed": false, "failed_when_result": false, "finished": 0, "results_file": "/home/tier3.global.ip/.ansible_async/746826806558.3025", "role_id": "477",…
