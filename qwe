@@ -5,21 +5,14 @@
   gather_facts: false
 
   pre_tasks:
-    # ▸ Pull every secret (NetBox token, proxy, device creds, …)
-    - name: Get secrets from Hashi Vault
+    - name: Pull the (only) NetBox secret from Vault
       ansible.builtin.set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+        netbox_token: "{{ lookup('hashi_vault', 'secret=ansible/data/tss netbox_soc_token') }}"
       no_log: true
 
-    # ▸ Publish the NetBox‑specific bits for the role
-    - name: Set NetBox variables from vault
-      ansible.builtin.set_fact:
-        netbox_token:   "{{ vault.netbox_soc_token }}"
-        netbox_delegate: "{{ vault.netbox_proxy | default('localhost') }}"
-        netbox_base:    "{{ vault.netbox_base_url | default('https://netbox.example/api/') }}"
-
   roles:
-    - netbox_lookup                      # all heavy lifting lives in the role
+    - netbox_lookup            # NetBox delegate + base URL come from inventory
+
 
 
 
