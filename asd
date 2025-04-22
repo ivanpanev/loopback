@@ -27,6 +27,9 @@
   throttle: 10
   register: nb_async
   failed_when: false              # 0‑result lookups are not errors
+  # Adding role_id explicitly into the results for future access
+  set_fact:
+    nb_async: "{{ nb_async.results | map('combine', {'role_id': role_id}) | list }}"
 
 # 2. Wait for all async NetBox responses
 - name: Wait for NetBox replies
@@ -36,7 +39,7 @@
   until: nb_results.finished
   retries: 60
   delay: 1
-  loop: "{{ nb_async.results }}"
+  loop: "{{ nb_async }}"
   loop_control:
     loop_var: nb_job              # keep track of individual job results
     label: "role {{ nb_job.role_id }}"  # This is now correctly accessed
@@ -49,8 +52,7 @@
       {{ ip_matches
          + (nb_res.result.json.results | default([])
             | map('combine',
-                  { 'role_id': nb_res.result.invocation.module_args.url
-                                 .split('role_id=')[1].split('&')[0] })
+                  { 'role_id': nb_res.role_id })  # Access role_id directly
             | list) }}
   when: (nb_res.result.json.count | default(0) | int) > 0
   loop: "{{ nb_results.results }}"
