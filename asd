@@ -23,8 +23,14 @@
     label: "role {{ role_id }}"
   delegate_to: "{{ netbox_delegate }}"    # delegate NetBox access to 10.160.2.22
   failed_when: false              # 0‑result lookups are not errors
+  register: netbox_response       # register the response
 
-# 2. Collect results after all NetBox queries (sequentially)
+# 2. Debug the NetBox API response
+- name: Print NetBox API response for GNID {{ gnid }} and role {{ role_id }}
+  debug:
+    msg: "NetBox response for role {{ role_id }}: {{ netbox_response }}"
+
+# 3. Collect results after all NetBox queries (sequentially)
 - name: Collect NetBox hits
   set_fact:
     ip_matches: >-
@@ -40,7 +46,7 @@
     loop_var: item               # use `item` for each result object from the query
     label: "role {{ item.role_id }}"  # Label works because we've retained the `role_id`
 
-# 3. Append to global list with the correct firewall delegate host
+# 4. Append to global list with the correct firewall delegate host
 - name: Append matches to global firewalls list
   set_fact:
     firewalls: "{{ firewalls + new_entries }}"
