@@ -1,15 +1,78 @@
+I am again getting the error:
+
+TASK [Bail if no firewall entry was found] *************************************
+fatal: [localhost]: FAILED! => {"changed": false, "msg": "No device found with GNID 2498163"}
+
+Here's is another similar playbook which works, but is designed to handle lists of GNIDs:
+
+
+- name: Query NetBox endpoints
+  vars:
+    endpoints:
+      - { path: "dcim/devices/", role: "478" }
+      - { path: "virtualization/virtual-machines/", role: "136" }
+      - { path: "virtualization/virtual-machines/", role: "477" }
+      - { path: "virtualization/virtual-machines/", role: "226" }
+      - { path: "virtualization/virtual-machines/", role: "85" }
+
+  block:
+  - name: Search NetBox API
+    uri:
+      url: "{{ netbox_base }}{{ endpoint.path }}?role_id={{ endpoint.role }}&cf_cmd_gnid={{ current_gnid }}"
+      headers:
+        Authorization: "Token {{ netbox_token }}"
+      validate_certs: no
+      return_content: yes
+      status_code: 200
+    delegate_to: 10.160.2.22
+    loop: "{{ endpoints }}"
+    loop_control:
+      loop_var: endpoint
+      label: "{{ endpoint.role }}"
+    register: netbox_results
+    changed_when: false
+    failed_when: false
+
+  - name: Extract firewall records
+    vars:
+      objects: "{{ item.1 }}"
+    set_fact:
+      firewall_list: >-
+        {{ firewall_list + [{
+             'gnid'    : current_gnid,
+             'ip'      : (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0,
+             'role'    : item.0.endpoint.role,
+             'jumphost': ('10.160.2.22'
+                           if item.0.endpoint.role in ['478','477','226','85']
+                           else 'localhost')
+           }] }}
+    loop: "{{ query('subelements', netbox_results.results,
+                   'json.results', skip_missing=True) }}"
+    loop_control:
+      label: "{{ (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0 }}"
+
+  - name: Show running list
+    debug:
+      var: firewall_list
+
+- name: Validate results
+  fail:
+    msg: "No entries found for GNID {{ current_gnid }}"
+  when: current_gnid not in firewall_list | map(attribute='gnid') | list
+
+
+and here is the main playbook which calls that similar gnid list handling playbook:
+
 ---
+
 - name: Lookup device in NetBox and update PrimaryIP
   hosts: localhost
   gather_facts: no
   connection: local
-
-  ## ❶ play-wide variables are visible to every host (incl. delegates)
   vars:
     netbox_base: "https://netbox.gt-t.net/api/"
 
   tasks:
-  # --------------------------------------------------------------------- vault
   - name: Get vault passwords
     set_fact:
       vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
@@ -20,13 +83,11 @@
       netbox_token: "{{ vault.netbox_soc_token }}"
     no_log: true
 
-  # ----------------------------------------------------------- optional debug
   - name: Show incoming hostvars/extra_vars
     debug:
       var: hostvars[inventory_hostname]
     when: show_extra_vars | default(true)
 
-  # ---------------------------------------------------------- extract the GNID
   - name: Determine current GNID once
     set_fact:
       current_gnid: >-
@@ -37,23 +98,19 @@
                else RequestDetails.GNID)
         }}
 
-  # ------------------------------------------------ include the lookup logic
   - name: Lookup PaloAlto firewall details in NetBox
     include_tasks: include_tasks/netbox_palo_fw_lookup.yml
 
-  # -------------------------------------------------------- validate the hit
   - name: Bail if no firewall entry was found
     fail:
       msg: "No device found with GNID {{ current_gnid }}"
     when: nb_primary_ip is not defined
 
-  # ---------------------------------------------- make sure extra_vars exists
   - name: Ensure extra_vars dict exists
     set_fact:
       extra_vars: {}
     when: extra_vars is not defined
 
-  # ------------------------------------------ merge NetBox data into request
   - name: Inject NetBox data into extra_vars.RequestDetails
     set_fact:
       extra_vars: >-
@@ -72,7 +129,6 @@
              )
         }}
 
-  # ----------------------------------------------------------- final debug
   - name: Show updated extra_vars
     debug:
       var: hostvars[inventory_hostname].extra_vars
@@ -81,70 +137,6 @@
       - nb_primary_ip is defined
 
 
+Compare these with my single-gnid-handling playbooks you just created and figgure out why the aerror is appearing.
 
-
-
-
-
-
-
----
-# This file is included by main.yml and relies on:
-#   netbox_base, netbox_token  (play vars, thus visible everywhere)
-#   current_gnid               (fact set in main.yml)
-
-# ❶ endpoint matrix -----------------------------------------------------------
-- name: Define endpoint matrix
-  set_fact:
-    endpoints:
-      - { path: "dcim/devices/",                 role: "478" }   # Physical PA
-      - { path: "virtualization/virtual-machines/", role: "136" }   # uCPE PA
-      - { path: "virtualization/virtual-machines/", role: "477" }   # VDC  PA
-      - { path: "virtualization/virtual-machines/", role: "226" }   # NFV  PA
-      - { path: "virtualization/virtual-machines/", role: "85"  }   # Legacy PA-VM
-  changed_when: false
-
-# ❷ query each endpoint --------------------------------------------------------
-- name: Query NetBox for {{ current_gnid }} on every endpoint
-  uri:
-    url: >-
-      {{ netbox_base }}
-      {{ item.path }}?role_id={{ item.role }}&cf_cmd_gnid={{ current_gnid }}
-    headers:
-      Authorization: "Token {{ netbox_token }}"
-      Accept: "application/json"
-    validate_certs: yes
-    return_content: yes
-  delegate_to: "{{ '10.160.2.22'
-                   if item.role in ['478','477','226','85']
-                   else 'localhost' }}"
-  loop: "{{ endpoints }}"
-  loop_control:
-    label: "{{ item.role }}"
-  register: netbox_query
-  changed_when: false
-  failed_when: false
-
-# ❸ extract the first non-empty result ----------------------------------------
-- name: Extract data from the first non-empty hit
-  set_fact:
-    nb_primary_ip: "{{ (item.0.json.results[0].primary_ip4.address
-                        | default(item.0.json.results[0].primary_ip.address))
-                        | split('/') | first }}"
-    nb_role_id:     "{{ endpoints[item.1].role }}"
-    nb_panorama_ip: "{{ item.0.json.results[0].custom_fields.panorama_ip
-                        | default('') }}"
-  loop: "{{ netbox_query.results | zip(range(netbox_query.results | length)) }}"
-  loop_control:
-    loop_var: item
-  when:
-    - item.0.json.count | default(0) | int > 0
-    - nb_primary_ip is not defined   # break after first hit
-
-# ❹ decide the jumphost --------------------------------------------------------
-- name: Derive jumphost from role ID
-  set_fact:
-    nb_jumphost: "{{ '10.16.2.22'
-                     if nb_role_id in ['478','477','226','85']
-                     else 'localhost' }}"
-  when: nb_primary_ip is defined
+Refer to it and make sure
