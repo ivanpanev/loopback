@@ -1,32 +1,38 @@
-  - name: Serialise extra_vars for the Python script
-    set_fact:
-      extra_vars_json: "{{ extra_vars | to_json }}"
-    no_log: true                             # keep secrets out of logs
-
-  # Copy the whole scripts folder only if the jumphost is remote
-  - name: Copy Python helper folder to {{ nb_jumphost }}
-    copy:
-      src: "{{ scripts_dir }}/"
-      dest: /tmp/palo_scripts/
-      mode: "0755"
-      recurse: yes
-    delegate_to: "{{ nb_jumphost }}"
-    when: nb_jumphost != 'localhost'
-
-  # Execute main.py where it now lives
-  - name: Run main.py on {{ nb_jumphost }}
-    command: >
-      python3 {{
-        (nb_jumphost == 'localhost')
-        | ternary(scripts_dir + '/main.py', '/tmp/palo_scripts/main.py')
-      }}
-    delegate_to: "{{ nb_jumphost }}"
-    environment:
-      EXTRA_VARS: "{{ extra_vars_json }}"
-    register: python_result
-
-  # Optional: show what the script printed
-  - name: Show script stdout
-    debug:
-      var: python_result.stdout_lines
-    when: show_extra_vars | default(true)
+{
+  "diff": [],
+  "msg": "Unsupported parameters for (ansible.legacy.copy) module: recurse. Supported parameters include: _original_basename, attributes, backup, checksum, content, dest, directory_mode, follow, force, group, local_follow, mode, owner, remote_src, selevel, serole, setype, seuser, src, unsafe_writes, validate (attr).",
+  "invocation": {
+    "module_args": {
+      "src": "/root/.ansible/tmp/ansible-tmp-1745846525.080217-152-156296128004154/source",
+      "dest": "/tmp/palo_scripts/",
+      "mode": "0755",
+      "recurse": true,
+      "_original_basename": "main.py",
+      "follow": false,
+      "checksum": "8dbfd6c31091861ff1c6eebbed13c0b6fb4267e9",
+      "backup": false,
+      "force": true,
+      "unsafe_writes": false,
+      "content": null,
+      "validate": null,
+      "directory_mode": null,
+      "remote_src": null,
+      "local_follow": null,
+      "owner": null,
+      "group": null,
+      "seuser": null,
+      "serole": null,
+      "selevel": null,
+      "setype": null,
+      "attributes": null
+    }
+  },
+  "checksum": "8dbfd6c31091861ff1c6eebbed13c0b6fb4267e9",
+  "_ansible_no_log": false,
+  "changed": false,
+  "_ansible_delegated_vars": {
+    "ansible_host": "10.16.2.22",
+    "ansible_port": null,
+    "ansible_user": "tier3.global.ip"
+  }
+}
