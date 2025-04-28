@@ -1,80 +1,156 @@
----
-- name: Lookup device in NetBox and update PrimaryIP
-  hosts: localhost
-  gather_facts: no
-  connection: local
+Here's the result of my manual API call:
 
-  tasks:
-    - name: Get vault passwords
-      set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
+GET /api/virtualization/virtual-machines/?role_id=477&cf_cmd_gnid=2498163
+HTTP 200 OK
+Allow: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
+Content-Type: application/json
+Vary: Accept
 
-    - name: Set netbox token
-      set_fact:
-        netbox_token: "{{ vault.netbox_soc_token }}"
-      no_log: true
+{
+    "count": 1,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": 70723,
+            "url": "http://netbox.gt-t.net/api/virtualization/virtual-machines/70723/",
+            "display": "vaas-fmc0-fw-2498163",
+            "name": "vaas-fmc0-fw-2498163",
+            "status": {
+                "value": "active",
+                "label": "Active"
+            },
+            "site": {
+                "id": 235,
+                "url": "http://netbox.gt-t.net/api/dcim/sites/235/",
+                "display": "FRA19",
+                "name": "FRA19",
+                "slug": "fra19"
+            },
+            "cluster": null,
+            "device": null,
+            "role": {
+                "id": 477,
+                "url": "http://netbox.gt-t.net/api/dcim/device-roles/477/",
+                "display": "VDC Palo Alto",
+                "name": "VDC Palo Alto",
+                "slug": "vdc-palo-alto"
+            },
+            "tenant": {
+                "id": 752,
+                "url": "http://netbox.gt-t.net/api/tenancy/tenants/752/",
+                "display": "FMCA0",
+                "name": "FMCA0",
+                "slug": "fmca0"
+            },
+            "platform": null,
+            "primary_ip": {
+                "id": 596987,
+                "url": "http://netbox.gt-t.net/api/ipam/ip-addresses/596987/",
+                "display": "100.66.31.9/29",
+                "family": 4,
+                "address": "100.66.31.9/29"
+            },
+            "primary_ip4": {
+                "id": 596987,
+                "url": "http://netbox.gt-t.net/api/ipam/ip-addresses/596987/",
+                "display": "100.66.31.9/29",
+                "family": 4,
+                "address": "100.66.31.9/29"
+            },
+            "primary_ip6": null,
+            "vcpus": 2.0,
+            "memory": 8,
+            "disk": 60,
+            "description": "",
+            "comments": "",
+            "config_template": null,
+            "local_context_data": null,
+            "tags": [],
+            "custom_fields": {
+                "data_type": null,
+                "srv_date": null,
+                "sync_date": null,
+                "cmd_gnid": 2498163,
+                "cmd_pon": null,
+                "cmd_slid": "2498163-13641655",
+                "cs_group": null,
+                "cs_project": null,
+                "vdc_account": null,
+                "vdc_vm_name": null,
+                "bck_comments": null,
+                "bck_copy": null,
+                "bck_location": null,
+                "bck_policy": null,
+                "bck_retention": null,
+                "bck_slp": null,
+                "bck_template": null,
+                "bck_type": null,
+                "bck_window": null,
+                "srv_backup": null,
+                "srv_email": null,
+                "srv_owner": null,
+                "srv_monitor": null,
+                "srv_snmp": null,
+                "srv_snmp_port": null,
+                "srv_snmp_ver": null,
+                "gtt_bck_fqdn": null,
+                "gtt_fqdn": null,
+                "cpu_cores_per_cpu": null,
+                "cpu_count": null,
+                "disk_count": null,
+                "nic_count": null,
+                "srv_bios": null,
+                "srv_uuid": null,
+                "lgc_dev_type": null,
+                "lgc_plt_type": null,
+                "lgc_scid": null,
+                "lgc_sgn": null,
+                "lgc_ssn": null,
+                "dev_purpose": null,
+                "os_build": "10.2.11-h6",
+                "panorama_ip": null,
+                "srv_antivirus": null,
+                "srv_domain": null,
+                "srv_env_type": null,
+                "srv_ha": false,
+                "srv_ntp": null,
+                "srv_patching": null,
+                "srv_patching_last": null,
+                "srv_timezone": null,
+                "srv_uptime": null,
+                "srv_vuln_mgmt": null,
+                "sup_contract_id": null,
+                "sup_contract_name": null,
+                "sup_exp_app": null,
+                "sup_exp_hw": null,
+                "srv_vserial": "007051000257162",
+                "srv_vuuid": null,
+                "vm_app_name": null,
+                "vm_app_vendor": null,
+                "vm_snapshot": null,
+                "vm_vtools": null
+            },
+            "config_context": {},
+            "created": "2024-04-26T06:57:38.278197Z",
+            "last_updated": "2025-01-30T21:45:22.968579Z",
+            "interface_count": 3,
+            "virtual_disk_count": 0
+        }
+    ]
+}
 
-    - name: Show original extra_vars
-      debug:
-        var: hostvars[inventory_hostname]
-      when: show_extra_vars | default(true)
-
-    - name: Determine current GNID once
-      set_fact:
-        current_gnid: >-
-          {{
-              (hostvars[inventory_hostname].extra_vars.RequestDetails.GNID
-                 if (hostvars[inventory_hostname].extra_vars is defined
-                     and hostvars[inventory_hostname].extra_vars.RequestDetails is defined)
-                 else RequestDetails.GNID)
-          }}
-
-    - name: Lookup PaloAlto firewall details in NetBox
-      include_tasks: include_tasks/netbox_palo_fw_lookup.yml
-
-    - name: Bail if no firewall entry was found
-      fail:
-        msg: "No device found with GNID {{ hostvars[inventory_hostname].extra_vars.RequestDetails.GNID }}"
-      when: nb_primary_ip is not defined
-
-    - name: Inject NetBox data into extra_vars.RequestDetails
-      set_fact:
-        extra_vars: >-
-          {{ extra_vars
-             | combine(
-                 {'RequestDetails':
-                   extra_vars.RequestDetails
-                   | combine({
-                       'PrimaryIP'   : nb_primary_ip,
-                       'role_id'     : nb_role_id,
-                       'jumphost'    : nb_jumphost,
-                       'panorama_ip' : nb_panorama_ip
-                     })
-                 },
-                 recursive=true
-               )
-          }}
-
-    - name: Show updated extra_vars
-      debug:
-        var: hostvars[inventory_hostname].extra_vars
-      when: 
-        - show_extra_vars | default(true)
-        - nb_primary_ip is defined
 
 
+Here's the error I'm getting when I run the playbook:
+
+TASK [Bail if no firewall entry was found] *************************************
+fatal: [localhost]: FAILED! => {"changed": false, "msg": "No device found with GNID 2498163"}
 
 
+Here's the two full plyabooks:
 
-
-
-
-
-
-
-
-
+netbox_palo_fw_lookup.yml:
 
 
 ---
@@ -128,23 +204,72 @@
   when: nb_primary_ip is defined
 
 
+main.yml:
 
 
+---
+- name: Lookup device in NetBox and update PrimaryIP
+  hosts: localhost
+  gather_facts: no
+  connection: local
 
+  tasks:
+    - name: Get vault passwords
+      set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
 
+    - name: Set netbox token
+      set_fact:
+        netbox_token: "{{ vault.netbox_soc_token }}"
+      no_log: true
 
+    - name: Show original extra_vars
+      debug:
+        var: hostvars[inventory_hostname]
+      when: show_extra_vars | default(true)
 
+    - name: Determine current GNID once
+      set_fact:
+        current_gnid: >-
+          {{
+              (hostvars[inventory_hostname].extra_vars.RequestDetails.GNID
+                 if (hostvars[inventory_hostname].extra_vars is defined
+                     and hostvars[inventory_hostname].extra_vars.RequestDetails is defined)
+                 else RequestDetails.GNID)
+          }}
 
+    - name: Lookup PaloAlto firewall details in NetBox
+      include_tasks: include_tasks/netbox_palo_fw_lookup.yml
 
+    - name: Bail if no firewall entry was found
+      fail:
+        msg: "No device found with GNID {{ current_gnid }}"
+      when: nb_primary_ip is not defined
 
+    - name: Inject NetBox data into extra_vars.RequestDetails
+      set_fact:
+        extra_vars: >-
+          {{ extra_vars
+             | combine(
+                 {'RequestDetails':
+                   extra_vars.RequestDetails
+                   | combine({
+                       'PrimaryIP'   : nb_primary_ip,
+                       'role_id'     : nb_role_id,
+                       'jumphost'    : nb_jumphost,
+                       'panorama_ip' : nb_panorama_ip
+                     })
+                 },
+                 recursive=true
+               )
+          }}
 
+    - name: Show updated extra_vars
+      debug:
+        var: hostvars[inventory_hostname].extra_vars
+      when: 
+        - show_extra_vars | default(true)
+        - nb_primary_ip is defined
 
-
-
-
-TASK [Bail if no firewall entry was found] *************************************
-fatal: [localhost]: FAILED! => {"msg": "The task includes an option with an undefined variable. The error was: 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'. 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'\n\nThe error appears to be in '/runner/project/main.yaml': line 36, column 7, but may\nbe elsewhere in the file depending on the exact syntax problem.\n\nThe offending line appears to be:\n\n\n    - name: Bail if no firewall entry was found\n      ^ here\n"}
-{
-  "msg": "The task includes an option with an undefined variable. The error was: 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'. 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'\n\nThe error appears to be in '/runner/project/main.yaml': line 36, column 7, but may\nbe elsewhere in the file depending on the exact syntax problem.\n\nThe offending line appears to be:\n\n\n    - name: Bail if no firewall entry was found\n      ^ here\n",
-  "_ansible_no_log": false
-}
+review everything and make sure we are stroing the variables and passing them between the two playbooks correctly 
