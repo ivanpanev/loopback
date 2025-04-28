@@ -1,4 +1,10 @@
-TASK [Define endpoint matrix] **************************************************
-ok: [localhost]
-TASK [Query NetBox for {{ current_gnid }} on every endpoint] *******************
-fatal: [localhost -> 10.160.2.22]: FAILED! => {"msg": "The task includes an option with an undefined variable. The error was: {{ extra_vars.RequestDetails.GNID }}: 'extra_vars' is undefined. 'extra_vars' is undefined. {{ extra_vars.RequestDetails.GNID }}: 'extra_vars' is undefined. 'extra_vars' is undefined\n\nThe error appears to be in '/runner/project/include_tasks/netbox_palo_fw_lookup.yml': line 13, column 3, but may\nbe elsewhere in the file depending on the exact syntax problem.\n\nThe offending line appears to be:\n\n\n- name: Query NetBox for {{ current_gnid }} on every endpoint\n  ^ here\nWe could be wrong, but this one looks like it might be an issue with\nmissing quotes. Always quote template expression brackets when they\nstart a value. For instance:\n\n    with_items:\n      - {{ foo }}\n\nShould be written as:\n\n    with_items:\n      - \"{{ foo }}\"\n"}
+    - name: Determine current GNID once
+      set_fact:
+        current_gnid: >-
+          {{
+              (hostvars[inventory_hostname].extra_vars.RequestDetails.GNID
+                 if (hostvars[inventory_hostname].extra_vars is defined
+                     and hostvars[inventory_hostname].extra_vars.RequestDetails is defined)
+                 else RequestDetails.GNID)
+          }}
+      no_log: true          # keep the token out of the log if you like
