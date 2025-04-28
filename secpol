@@ -1,6 +1,86 @@
 ---
+- name: Lookup device in NetBox and update PrimaryIP
+  hosts: localhost
+  gather_facts: no
+  connection: local
+
+  tasks:
+    - name: Get vault passwords
+      set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
+
+    - name: Set netbox token
+      set_fact:
+        netbox_token: "{{ vault.netbox_soc_token }}"
+      no_log: true
+
+    - name: Show original extra_vars
+      debug:
+        var: hostvars[inventory_hostname]
+      when: show_extra_vars | default(true)
+
+    - name: Determine current GNID once
+      set_fact:
+        current_gnid: >-
+          {{
+              (hostvars[inventory_hostname].extra_vars.RequestDetails.GNID
+                 if (hostvars[inventory_hostname].extra_vars is defined
+                     and hostvars[inventory_hostname].extra_vars.RequestDetails is defined)
+                 else RequestDetails.GNID)
+          }}
+
+    - name: Lookup PaloAlto firewall details in NetBox
+      include_tasks: include_tasks/netbox_palo_fw_lookup.yml
+
+    - name: Bail if no firewall entry was found
+      fail:
+        msg: "No device found with GNID {{ hostvars[inventory_hostname].extra_vars.RequestDetails.GNID }}"
+      when: nb_primary_ip is not defined
+
+    - name: Inject NetBox data into extra_vars.RequestDetails
+      set_fact:
+        extra_vars: >-
+          {{ extra_vars
+             | combine(
+                 {'RequestDetails':
+                   extra_vars.RequestDetails
+                   | combine({
+                       'PrimaryIP'   : nb_primary_ip,
+                       'role_id'     : nb_role_id,
+                       'jumphost'    : nb_jumphost,
+                       'panorama_ip' : nb_panorama_ip
+                     })
+                 },
+                 recursive=true
+               )
+          }}
+
+    - name: Show updated extra_vars
+      debug:
+        var: hostvars[inventory_hostname].extra_vars
+      when: 
+        - show_extra_vars | default(true)
+        - nb_primary_ip is defined
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
 - name: Define endpoint matrix
   set_fact:
+    netbox_base: "https://netbox.gt-t.net/api/"
     endpoints:
       - { path: "dcim/devices/",                 role: "478" }   # Physical PA
       - { path: "virtualization/virtual-machines/", role: "136" }   # uCPE PA
@@ -11,9 +91,7 @@
 
 - name: Query NetBox for {{ current_gnid }} on every endpoint
   uri:
-    url: >-
-      {{ hostvars['localhost'].netbox_base }}
-      {{ item.path }}?role_id={{ item.role }}&cf_cmd_gnid={{ current_gnid }}
+    url: "{{ netbox_base }}{{ item.path }}?role_id={{ item.role }}&cf_cmd_gnid={{ current_gnid }}"
     headers:
       Authorization: "Token {{ hostvars['localhost'].netbox_token }}"
       Accept: "application/json"
@@ -27,4 +105,46 @@
   changed_when: false
   failed_when: false
 
-# … the remainder of the file is unchanged …
+- name: Extract data from the first non-empty hit
+  set_fact:
+    nb_primary_ip: "{{ (item.0.json.results[0].primary_ip4.address
+                        | default(item.0.json.results[0].primary_ip.address))
+                        | split('/') | first }}"
+    nb_role_id:     "{{ endpoints[item.1].role }}"
+    nb_panorama_ip: "{{ item.0.json.results[0].custom_fields.panorama_ip
+                        | default('') }}"
+  loop: "{{ netbox_query.results | zip(range(0, netbox_query.results | length)) }}"
+  loop_control:
+    loop_var: item
+  when:
+    - item.0.json.count | default(0) | int > 0
+    - nb_primary_ip is not defined  # stop after the first match
+
+- name: Derive jumphost from role ID
+  set_fact:
+    nb_jumphost: "{{ '10.16.2.22'
+                     if nb_role_id in ['478','477','226','85']
+                     else 'localhost' }}"
+  when: nb_primary_ip is defined
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+TASK [Bail if no firewall entry was found] *************************************
+fatal: [localhost]: FAILED! => {"msg": "The task includes an option with an undefined variable. The error was: 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'. 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'\n\nThe error appears to be in '/runner/project/main.yaml': line 36, column 7, but may\nbe elsewhere in the file depending on the exact syntax problem.\n\nThe offending line appears to be:\n\n\n    - name: Bail if no firewall entry was found\n      ^ here\n"}
+{
+  "msg": "The task includes an option with an undefined variable. The error was: 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'. 'ansible.vars.hostvars.HostVarsVars object' has no attribute 'extra_vars'\n\nThe error appears to be in '/runner/project/main.yaml': line 36, column 7, but may\nbe elsewhere in the file depending on the exact syntax problem.\n\nThe offending line appears to be:\n\n\n    - name: Bail if no firewall entry was found\n      ^ here\n",
+  "_ansible_no_log": false
+}
