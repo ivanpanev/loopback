@@ -1,127 +1,63 @@
-Here's my inlcude tasks playbook:
-
-
 ---
+# This file is included from the main play with:
+#   vars:
+#     current_gnid: "{{ extra_vars.RequestDetails.GNID }}"
 
-- name: Endpoint matrix (first match wins)
-  vars:
+# ───────────────────────────────────────────────────────────────────────────────
+# 1.  Build the endpoint matrix once
+# ───────────────────────────────────────────────────────────────────────────────
+- name: Define endpoint matrix
+  set_fact:
     endpoints:
-      - { path: "dcim/devices/", role: "478" } # Physical Palo Alto
-      - { path: "virtualization/virtual-machines/", role: "136" } # uCPE Palo Alto
-      - { path: "virtualization/virtual-machines/", role: "477" } # VDC Palo Alto
-      - { path: "virtualization/virtual-machines/", role: "226" } # NFV Palo Alto
-      - { path: "virtualization/virtual-machines/", role: "85"  } # Firewall Virtual
+      - { path: "dcim/devices/",                 role: "478" }   # Physical PA
+      - { path: "virtualization/virtual-machines/", role: "136" }   # uCPE PA
+      - { path: "virtualization/virtual-machines/", role: "477" }   # VDC  PA
+      - { path: "virtualization/virtual-machines/", role: "226" }   # NFV  PA
+      - { path: "virtualization/virtual-machines/", role: "85"  }   # Legacy
+  changed_when: false
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 2.  Hit NetBox once per endpoint (loop on the TASK, not on a block)
+# ───────────────────────────────────────────────────────────────────────────────
+- name: Query NetBox for {{ current_gnid }} on every endpoint
+  uri:
+    url: "{{ netbox_base }}{{ item.path }}?role_id={{ item.role }}&cf_cmd_gnid={{ current_gnid }}"
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: yes
+    return_content: yes
+  delegate_to: "{{ '10.160.2.22' if item.role in ['478','477','226','85']
+                               else 'localhost' }}"
   loop: "{{ endpoints }}"
   loop_control:
-    loop_var: ep
-  
-  block:
-    - name: Query NetBox for GNID {{ current_gnid }} / role {{ ep.role }}
-      uri:
-        url: "{{ netbox_base }}{{ ep.path }}?role_id={{ ep.role }}&cf_cmd_gnid={{ current_gnid }}"
-        headers:
-          Authorization: "Token {{ netbox_token }}"
-          Accept: "application/json"
-        validate_certs: yes
-        return_content: yes
-      delegate_to: 10.160.2.22
-      register: _nb
-      changed_when: false
-      failed_when: false
+    label: "{{ item.role }}"
+  register: netbox_query
+  changed_when: false
+  failed_when: false
 
-    - name: Store results from first non-empty hit
-      set_fact:
-        nb_primary_ip:  "{{ (_nb.json.results[0].primary_ip4.address
-                             | default(_nb.json.results[0].primary_ip.address))
-                             | split('/') | first }}"
-        nb_role_id:     "{{ ep.role }}"
-        nb_panorama_ip: "{{ _nb.json.results[0].custom_fields.panorama_ip | default('') }}"
-      when:
-        - _nb.json.count | default(0) | int > 0
-        - nb_primary_ip is not defined
+# ───────────────────────────────────────────────────────────────────────────────
+# 3.  Pick the FIRST non-empty result and expose facts
+# ───────────────────────────────────────────────────────────────────────────────
+# We zip the result list with its index so that we can get back to the role ID
+- name: Extract data from the first non-empty hit
+  set_fact:
+    nb_primary_ip: "{{ (item.0.json.results[0].primary_ip4.address
+                        | default(item.0.json.results[0].primary_ip.address))
+                        | split('/') | first }}"
+    nb_role_id:     "{{ endpoints[item.1].role }}"
+    nb_panorama_ip: "{{ item.0.json.results[0].custom_fields.panorama_ip
+                        | default('') }}"
+  loop: "{{ netbox_query.results | zip(range(0, netbox_query.results | length)) }}"
+  loop_control:
+    loop_var: item   # item.0 = result object, item.1 = index
+  when:
+    - item.0.json.count | default(0) | int > 0
+    - nb_primary_ip is not defined      # stop after the first match
 
-    - name: Derive jumphost for the matched role
-      set_fact:
-        nb_jumphost: "{{ '10.16.2.22'
-                         if nb_role_id in ['478','477','226','85']
-                         else 'localhost' }}"
-      when: nb_primary_ip is defined
-
-    - name: Break the loop once we have a hit
-      meta: end_loop
-      when: nb_primary_ip is defined
-
-
-
-
-Here's my main file:
-
-
----
-- name: Lookup device in NetBox and update PrimaryIP
-  hosts: localhost
-  gather_facts: no
-  connection: local
-
-  tasks:
-    - name: Get vault passwords
-      set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
-
-    - name: Set netbox token
-      set_fact:
-        netbox_token: "{{ vault.netbox_soc_token }}"
-      no_log: true
-
-    - name: Show original extra_vars
-      debug:
-        var: hostvars[inventory_hostname]
-      when: show_extra_vars | default(true)
-
-    - name: Lookup PaloAlto firewall details in NetBox
-      include_tasks: include_tasks/netbox_palo_fw_lookup.yml
-      vars:
-        current_gnid: "{{ extra_vars.RequestDetails.GNID }}"
-
-    - name: Bail if no firewall entry was found
-      fail:
-        msg: "No device found with GNID {{ extra_vars.RequestDetails.GNID }}"
-      when: nb_primary_ip is not defined
-
-    - name: Inject NetBox data into extra_vars.RequestDetails
-      set_fact:
-        extra_vars: >-
-          {{ extra_vars
-             | combine(
-                 {'RequestDetails':
-                   extra_vars.RequestDetails
-                   | combine({
-                       'PrimaryIP'   : nb_primary_ip,
-                       'role_id'     : nb_role_id,
-                       'jumphost'    : nb_jumphost,
-                       'panorama_ip' : nb_panorama_ip
-                     })
-                 },
-                 recursive=true
-               )
-          }}
-
-    - name: Show updated extra_vars
-      debug:
-        var: hostvars[inventory_hostname].extra_vars
-      when: 
-        - show_extra_vars | default(true)
-        - primary_ip is defined
-
-
-
-I'm getting an error because we are usign a loop with a block:
-
-TASK [Lookup PaloAlto firewall details in NetBox] ******************************
-ERROR! 'loop' is not a valid attribute for a Block
-The error appears to be in '/runner/project/include_tasks/netbox_palo_fw_lookup.yml': line 3, column 3, but may
-be elsewhere in the file depending on the exact syntax problem.
-The offending line appears to be:
-- name: Endpoint matrix (first match wins)
-  ^ here
+- name: Derive jumphost from role ID
+  set_fact:
+    nb_jumphost: "{{ '10.16.2.22'
+                     if nb_role_id in ['478','477','226','85']
+                     else 'localhost' }}"
+  when: nb_primary_ip is defined
