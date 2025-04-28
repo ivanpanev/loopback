@@ -1,0 +1,385 @@
+{
+  "extra_vars": {
+    "Changes": [
+      {
+        "Action": "allow",
+        "AntiSpyware": "None",
+        "Antivirus": "None",
+        "Application": [],
+        "ChangeCategory": "SecurityRule",
+        "ChangeType": "Add",
+        "DataFiltering": "None",
+        "Description": "asd",
+        "DestinationAddress": [],
+        "DestinationDevice": [],
+        "DestinationZone": [
+          "trust"
+        ],
+        "FileBlocking": "None",
+        "LogSetting": "Yes",
+        "ProfileGroup": "None",
+        "RuleName": "asd",
+        "Service": [
+          "TCP/80"
+        ],
+        "SourceAddress": [
+          "asd"
+        ],
+        "SourceDevice": [],
+        "SourceUser": [],
+        "SourceZone": [
+          "any"
+        ],
+        "Tag": [],
+        "URLCategory": [],
+        "URLFiltering": "None",
+        "VulnerabilityProtection": "None",
+        "WildFireAnalysis": "None"
+      },
+      {
+        "Action": "allow",
+        "AntiSpyware": "None",
+        "Antivirus": "None",
+        "Application": [],
+        "ChangeCategory": "SecurityRule",
+        "ChangeType": "Add",
+        "DataFiltering": "None",
+        "Description": "",
+        "DestinationAddress": [],
+        "DestinationDevice": [],
+        "DestinationZone": [
+          "trust"
+        ],
+        "FileBlocking": "None",
+        "LogSetting": "Yes",
+        "ProfileGroup": "None",
+        "RuleName": "qwtgtt",
+        "Service": [
+          "TCP/8080",
+          "UDP/8080"
+        ],
+        "SourceAddress": [
+          "asd"
+        ],
+        "SourceDevice": [],
+        "SourceUser": [],
+        "SourceZone": [
+          "any"
+        ],
+        "Tag": [],
+        "URLCategory": [],
+        "URLFiltering": "None",
+        "VulnerabilityProtection": "None",
+        "WildFireAnalysis": "None"
+      },
+      {
+        "Action": "allow",
+        "AntiSpyware": "None",
+        "Antivirus": "None",
+        "Application": [],
+        "ChangeCategory": "SecurityRule",
+        "ChangeType": "Add",
+        "DataFiltering": "None",
+        "Description": "",
+        "DestinationAddress": [],
+        "DestinationDevice": [],
+        "DestinationZone": [
+          "trust"
+        ],
+        "FileBlocking": "None",
+        "LogSetting": "Yes",
+        "ProfileGroup": "None",
+        "RuleName": "qwtgtt",
+        "Service": [
+          "TCP/8080",
+          "UDP/8080"
+        ],
+        "SourceAddress": [
+          "asd"
+        ],
+        "SourceDevice": [],
+        "SourceUser": [],
+        "SourceZone": [
+          "any"
+        ],
+        "Tag": [],
+        "URLCategory": [],
+        "URLFiltering": "None",
+        "VulnerabilityProtection": "None",
+        "WildFireAnalysis": "None"
+      },
+      {
+        "Action": "allow",
+        "AntiSpyware": "None",
+        "Antivirus": "None",
+        "Application": [
+          "zoom"
+        ],
+        "ChangeCategory": "SecurityRule",
+        "ChangeType": "Add",
+        "DataFiltering": "None",
+        "Description": "test rule 1 ",
+        "DestinationAddress": [
+          "any"
+        ],
+        "DestinationDevice": [],
+        "DestinationZone": [
+          "testzd"
+        ],
+        "FileBlocking": "None",
+        "LogSetting": "Yes",
+        "ProfileGroup": "None",
+        "RuleName": "test r1",
+        "Service": [
+          "TCP/443",
+          "TCP/8080"
+        ],
+        "SourceAddress": [
+          "192.168.1.1"
+        ],
+        "SourceDevice": [],
+        "SourceUser": [
+          "any"
+        ],
+        "SourceZone": [
+          "testz"
+        ],
+        "Tag": [],
+        "URLCategory": [],
+        "URLFiltering": "None",
+        "VulnerabilityProtection": "None",
+        "WildFireAnalysis": "None"
+      }
+    ],
+    "RequestDetails": {
+      "DeviceMgmt": "",
+      "DeviceMgmtDeviceGroup": "",
+      "DeviceMgmtIP": "",
+      "DeviceRole": "",
+      "GNID": "qwe",
+      "Hostname": "",
+      "PrimaryIP": "0.0.0.0",
+      "TicketNumber": "qwe"
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- name: Query NetBox endpoints
+  vars:
+    endpoints:
+      - { path: "dcim/devices/", role: "478" }
+      - { path: "virtualization/virtual-machines/", role: "136" }
+      - { path: "virtualization/virtual-machines/", role: "477" }
+      - { path: "virtualization/virtual-machines/", role: "226" }
+      - { path: "virtualization/virtual-machines/", role: "85" }
+  block:
+
+  - name: Search NetBox API
+    uri:
+      url: "{{ netbox_base }}{{ endpoint.path }}?role_id={{ endpoint.role }}&cf_cmd_gnid={{ current_gnid }}"
+      headers:
+        Authorization: "Token {{ netbox_token }}"
+      validate_certs: no
+      return_content: yes
+      status_code: 200
+    delegate_to: 10.160.2.22
+    loop: "{{ endpoints }}"
+    loop_control:
+      loop_var: endpoint
+      label: "{{ endpoint.role }}"
+    register: netbox_results
+    changed_when: false
+    failed_when: false
+
+  - name: Extract firewall records
+    vars:
+      objects: "{{ item.1 }}"
+    set_fact:
+      firewall_list: >-
+        {{ firewall_list + [{
+             'gnid'    : current_gnid,
+             'ip'      : (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0,
+             'role'    : item.0.endpoint.role,
+             'jumphost': ('10.160.2.22'
+                           if item.0.endpoint.role in ['478','477','226','85']
+                           else 'localhost')
+           }] }}
+    loop: "{{ query('subelements', netbox_results.results,
+                   'json.results', skip_missing=True) }}"
+    loop_control:
+      label: "{{ (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0 }}"
+
+  - name: Show running list
+    debug:
+      var: firewall_list
+
+- name: Validate results
+  fail:
+    msg: "No entries found for GNID {{ current_gnid }}"
+  when: current_gnid not in firewall_list | map(attribute='gnid') | list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ---
+- name: Lookup device in NetBox and update PrimaryIP
+  hosts: localhost
+  gather_facts: no
+  connection: local
+  vars:
+    netbox_base: "https://netbox.gt-t.net/api/"
+    netbox_token: "0bd8f6b5bd34066ae603f1e6adda91b061f7f4ea"
+
+  tasks:
+    - name: Show original extra_vars
+      debug:
+        var: hostvars[inventory_hostname].extra_vars
+      when: show_extra_vars | default(true)
+
+    - name: Initialize primary_ip
+      set_fact:
+        primary_ip: ""
+
+    # Check role_id=226 (virtualization)
+    - name: Search for role_id=226 in virtualization
+      uri:
+        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=226&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: result_226
+      ignore_errors: yes
+      when: not primary_ip
+
+    - name: Set primary_ip if found in 226
+      set_fact:
+        primary_ip: "{{ (result_226.json.results[0].primary_ip4.address | split('/')).0 }}"
+      when: 
+        - not primary_ip
+        - result_226 is succeeded
+        - result_226.json.count > 0
+
+    # Check role_id=478 (dcim)
+    - name: Search for role_id=478 in dcim
+      uri:
+        url: "{{ netbox_base }}dcim/devices/?role_id=478&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: result_478
+      ignore_errors: yes
+      when: not primary_ip
+
+    - name: Set primary_ip if found in 478
+      set_fact:
+        primary_ip: "{{ (result_478.json.results[0].primary_ip4.address | split('/')).0 }}"
+      when: 
+        - not primary_ip
+        - result_478 is succeeded
+        - result_478.json.count > 0
+
+    # Check role_id=136 (virtualization)
+    - name: Search for role_id=136 in virtualization
+      uri:
+        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=136&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: result_136
+      ignore_errors: yes
+      when: not primary_ip
+
+    - name: Set primary_ip if found in 136
+      set_fact:
+        primary_ip: "{{ (result_136.json.results[0].primary_ip4.address | split('/')).0 }}"
+      when: 
+        - not primary_ip
+        - result_136 is succeeded
+        - result_136.json.count > 0
+
+    # Check role_id=477 (virtualization)
+    - name: Search for role_id=477 in virtualization
+      uri:
+        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=477&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      register: result_477
+      ignore_errors: yes
+      when: not primary_ip
+
+    - name: Set primary_ip if found in 477
+      set_fact:
+        primary_ip: "{{ (result_477.json.results[0].primary_ip4.address | split('/')).0 }}"
+      when: 
+        - not primary_ip
+        - result_477 is succeeded
+        - result_477.json.count > 0
+
+    - name: Update PrimaryIP in RequestDetails
+      set_fact:
+        extra_vars: "{{ extra_vars | combine({'RequestDetails': extra_vars.RequestDetails | combine({'PrimaryIP': primary_ip}) }, recursive=true) }}"
+      when: primary_ip
+
+    - name: Show updated extra_vars
+      debug:
+        var: hostvars[inventory_hostname].extra_vars
+      when: 
+        - show_extra_vars | default(true)
+        - primary_ip is defined
+
+    - name: Fail if no device found
+      fail:
+        msg: "No device found with GNID {{ extra_vars.RequestDetails.GNID }}"
+      when: not primary_ip
