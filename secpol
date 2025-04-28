@@ -1,20 +1,36 @@
-# --------------------------------------------------------------------------- #
-#  Run main.py on the chosen jumphost, passing the entire extra_vars payload  #
-# --------------------------------------------------------------------------- #
+  - name: Serialise extra_vars for the Python script
+    set_fact:
+      extra_vars_json: "{{ extra_vars | to_json }}"
+    no_log: true
+  
+  - name: Execute main.py on {{ nb_jumphost }}
+    ansible.builtin.script:
+      cmd: main.py
+      executable: /usr/bin/python3
+    delegate_to: "{{ nb_jumphost }}"
+    environment:
+      EXTRA_VARS: "{{ extra_vars_json }}"
+    register: python_result
 
-- name: Serialise extra_vars for the Python script
-  set_fact:
-    extra_vars_json: "{{ extra_vars | to_json }}"
-  no_log: true                    # keep secrets out of the log
 
-- name: Execute main.py on {{ nb_jumphost }}
-  script: files/main.py           # path inside your Git repo
-  delegate_to: "{{ nb_jumphost }}"
-  environment:
-    EXTRA_VARS: "{{ extra_vars_json }}"
-  register: py_result
-
-- name: Show script output (optional)
-  debug:
-    var: py_result.stdout_lines
-  when: show_extra_vars | default(true)
+{
+  "changed": false,
+  "rc": 1,
+  "stdout": "",
+  "stdout_lines": [],
+  "stderr": "Traceback (most recent call last):\n  File \"/root/.ansible/tmp/ansible-tmp-1745845766.8226318-150-88517455144479/main.py\", line 1, in <module>\n    import gttPaloUtilities\nModuleNotFoundError: No module named 'gttPaloUtilities'\n",
+  "stderr_lines": [
+    "Traceback (most recent call last):",
+    "  File \"/root/.ansible/tmp/ansible-tmp-1745845766.8226318-150-88517455144479/main.py\", line 1, in <module>",
+    "    import gttPaloUtilities",
+    "ModuleNotFoundError: No module named 'gttPaloUtilities'"
+  ],
+  "msg": "non-zero return code",
+  "exception": "NoneType: None\n",
+  "_ansible_no_log": false,
+  "_ansible_delegated_vars": {
+    "ansible_host": "10.16.2.22",
+    "ansible_port": null,
+    "ansible_user": "tier3.global.ip"
+  }
+}
