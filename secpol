@@ -1,247 +1,49 @@
-{
-  "extra_vars": {
-    "Changes": [
-      {
-        "Action": "allow",
-        "AntiSpyware": "None",
-        "Antivirus": "None",
-        "Application": [],
-        "ChangeCategory": "SecurityRule",
-        "ChangeType": "Add",
-        "DataFiltering": "None",
-        "Description": "asd",
-        "DestinationAddress": [],
-        "DestinationDevice": [],
-        "DestinationZone": [
-          "trust"
-        ],
-        "FileBlocking": "None",
-        "LogSetting": "Yes",
-        "ProfileGroup": "None",
-        "RuleName": "asd",
-        "Service": [
-          "TCP/80"
-        ],
-        "SourceAddress": [
-          "asd"
-        ],
-        "SourceDevice": [],
-        "SourceUser": [],
-        "SourceZone": [
-          "any"
-        ],
-        "Tag": [],
-        "URLCategory": [],
-        "URLFiltering": "None",
-        "VulnerabilityProtection": "None",
-        "WildFireAnalysis": "None"
-      },
-      {
-        "Action": "allow",
-        "AntiSpyware": "None",
-        "Antivirus": "None",
-        "Application": [],
-        "ChangeCategory": "SecurityRule",
-        "ChangeType": "Add",
-        "DataFiltering": "None",
-        "Description": "",
-        "DestinationAddress": [],
-        "DestinationDevice": [],
-        "DestinationZone": [
-          "trust"
-        ],
-        "FileBlocking": "None",
-        "LogSetting": "Yes",
-        "ProfileGroup": "None",
-        "RuleName": "qwtgtt",
-        "Service": [
-          "TCP/8080",
-          "UDP/8080"
-        ],
-        "SourceAddress": [
-          "asd"
-        ],
-        "SourceDevice": [],
-        "SourceUser": [],
-        "SourceZone": [
-          "any"
-        ],
-        "Tag": [],
-        "URLCategory": [],
-        "URLFiltering": "None",
-        "VulnerabilityProtection": "None",
-        "WildFireAnalysis": "None"
-      },
-      {
-        "Action": "allow",
-        "AntiSpyware": "None",
-        "Antivirus": "None",
-        "Application": [],
-        "ChangeCategory": "SecurityRule",
-        "ChangeType": "Add",
-        "DataFiltering": "None",
-        "Description": "",
-        "DestinationAddress": [],
-        "DestinationDevice": [],
-        "DestinationZone": [
-          "trust"
-        ],
-        "FileBlocking": "None",
-        "LogSetting": "Yes",
-        "ProfileGroup": "None",
-        "RuleName": "qwtgtt",
-        "Service": [
-          "TCP/8080",
-          "UDP/8080"
-        ],
-        "SourceAddress": [
-          "asd"
-        ],
-        "SourceDevice": [],
-        "SourceUser": [],
-        "SourceZone": [
-          "any"
-        ],
-        "Tag": [],
-        "URLCategory": [],
-        "URLFiltering": "None",
-        "VulnerabilityProtection": "None",
-        "WildFireAnalysis": "None"
-      },
-      {
-        "Action": "allow",
-        "AntiSpyware": "None",
-        "Antivirus": "None",
-        "Application": [
-          "zoom"
-        ],
-        "ChangeCategory": "SecurityRule",
-        "ChangeType": "Add",
-        "DataFiltering": "None",
-        "Description": "test rule 1 ",
-        "DestinationAddress": [
-          "any"
-        ],
-        "DestinationDevice": [],
-        "DestinationZone": [
-          "testzd"
-        ],
-        "FileBlocking": "None",
-        "LogSetting": "Yes",
-        "ProfileGroup": "None",
-        "RuleName": "test r1",
-        "Service": [
-          "TCP/443",
-          "TCP/8080"
-        ],
-        "SourceAddress": [
-          "192.168.1.1"
-        ],
-        "SourceDevice": [],
-        "SourceUser": [
-          "any"
-        ],
-        "SourceZone": [
-          "testz"
-        ],
-        "Tag": [],
-        "URLCategory": [],
-        "URLFiltering": "None",
-        "VulnerabilityProtection": "None",
-        "WildFireAnalysis": "None"
-      }
-    ],
-    "RequestDetails": {
-      "DeviceMgmt": "",
-      "DeviceMgmtDeviceGroup": "",
-      "DeviceMgmtIP": "",
-      "DeviceRole": "",
-      "GNID": "qwe",
-      "Hostname": "",
-      "PrimaryIP": "0.0.0.0",
-      "TicketNumber": "qwe"
-    }
-  }
-}
+---
+# Called with:
+#   current_gnid – the GNID to search for
+#   netbox_base, netbox_token – NetBox connection details
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- name: Query NetBox endpoints
+- name: Endpoint matrix (first match wins)
   vars:
     endpoints:
-      - { path: "dcim/devices/", role: "478" }
-      - { path: "virtualization/virtual-machines/", role: "136" }
-      - { path: "virtualization/virtual-machines/", role: "477" }
-      - { path: "virtualization/virtual-machines/", role: "226" }
-      - { path: "virtualization/virtual-machines/", role: "85" }
+      - { path: "dcim/devices/",                 role: "478" }   # on-prem PA-HW
+      - { path: "virtualization/virtual-machines/", role: "136" }   # PA-VM (KVM/Vmware)
+      - { path: "virtualization/virtual-machines/", role: "477" }   # PA-VM (Azure)
+      - { path: "virtualization/virtual-machines/", role: "226" }   # PA-VM (AWS)
+      - { path: "virtualization/virtual-machines/", role: "85"  }   # legacy
+  loop: "{{ endpoints }}"
+  loop_control:
+    loop_var: ep           # <- keep the loop var short
   block:
 
-  - name: Search NetBox API
-    uri:
-      url: "{{ netbox_base }}{{ endpoint.path }}?role_id={{ endpoint.role }}&cf_cmd_gnid={{ current_gnid }}"
-      headers:
-        Authorization: "Token {{ netbox_token }}"
-      validate_certs: no
-      return_content: yes
-      status_code: 200
-    delegate_to: 10.160.2.22
-    loop: "{{ endpoints }}"
-    loop_control:
-      loop_var: endpoint
-      label: "{{ endpoint.role }}"
-    register: netbox_results
-    changed_when: false
-    failed_when: false
+    - name: Query NetBox for GNID {{ current_gnid }} / role {{ ep.role }}
+      uri:
+        url: "{{ netbox_base }}{{ ep.path }}?role_id={{ ep.role }}&cf_cmd_gnid={{ current_gnid }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: yes
+        return_content: yes
+      delegate_to: "{{ '10.160.2.22' if ep.role in ['478','477','226','85'] else 'localhost' }}"
+      register: _nb
+      changed_when: false
+      failed_when: false
 
-  - name: Extract firewall records
-    vars:
-      objects: "{{ item.1 }}"
-    set_fact:
-      firewall_list: >-
-        {{ firewall_list + [{
-             'gnid'    : current_gnid,
-             'ip'      : (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0,
-             'role'    : item.0.endpoint.role,
-             'jumphost': ('10.160.2.22'
-                           if item.0.endpoint.role in ['478','477','226','85']
-                           else 'localhost')
-           }] }}
-    loop: "{{ query('subelements', netbox_results.results,
-                   'json.results', skip_missing=True) }}"
-    loop_control:
-      label: "{{ (objects.primary_ip4.address | default(objects.primary_ip.address) | split('/')).0 }}"
+    - name: Store results from first non-empty hit
+      set_fact:
+        nb_primary_ip:  "{{ (_nb.json.results[0].primary_ip4.address | default(_nb.json.results[0].primary_ip.address)) | split('/') | first }}"
+        nb_role_id:     "{{ ep.role }}"
+        nb_panorama_ip: "{{ _nb.json.results[0].custom_fields.panorama_ip | default('') }}"
+      when:
+        - _nb.json.count | default(0) | int > 0
+        - nb_primary_ip is not defined        # guard: stop after first match
+      vars:
+        ansible_facts:
+          nb_hit: true
 
-  - name: Show running list
-    debug:
-      var: firewall_list
-
-- name: Validate results
-  fail:
-    msg: "No entries found for GNID {{ current_gnid }}"
-  when: current_gnid not in firewall_list | map(attribute='gnid') | list
+    - name: Break the loop once we have a hit
+      meta: end_loop
+      when: nb_primary_ip is defined
 
 
 
@@ -264,122 +66,136 @@
 
 
 
-  ---
-- name: Lookup device in NetBox and update PrimaryIP
-  hosts: localhost
-  gather_facts: no
-  connection: local
-  vars:
-    netbox_base: "https://netbox.gt-t.net/api/"
-    netbox_token: "0bd8f6b5bd34066ae603f1e6adda91b061f7f4ea"
+
+
+
+
 
   tasks:
+
+    # ─── original debug of incoming extra_vars ──────────────────────────────────
     - name: Show original extra_vars
       debug:
         var: hostvars[inventory_hostname].extra_vars
       when: show_extra_vars | default(true)
 
-    - name: Initialize primary_ip
+    # ─── NetBox lookup via include_tasks ───────────────────────────────────────
+    - name: Lookup PaloAlto firewall details in NetBox
+      include_tasks: tasks/netbox_palo_fw_lookup.yml
+      vars:
+        current_gnid: "{{ extra_vars.RequestDetails.GNID }}"
+
+    # ─── validate the lookup ───────────────────────────────────────────────────
+    - name: Bail if no firewall entry was found
+      fail:
+        msg: "No device found with GNID {{ extra_vars.RequestDetails.GNID }}"
+      when: nb_primary_ip is not defined
+
+    # ─── merge the data back into RequestDetails ───────────────────────────────
+    - name: Inject NetBox data into extra_vars.RequestDetails
       set_fact:
-        primary_ip: ""
+        extra_vars: >-
+          {{ extra_vars
+             | combine(
+                 {'RequestDetails':
+                   extra_vars.RequestDetails
+                   | combine({
+                       'PrimaryIP'  : nb_primary_ip,
+                       'RoleID'     : nb_role_id,
+                       'PanoramaIP' : nb_panorama_ip
+                     })
+                 },
+                 recursive=true
+               )
+          }}
 
-    # Check role_id=226 (virtualization)
-    - name: Search for role_id=226 in virtualization
-      uri:
-        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=226&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
-        headers:
-          Authorization: "Token {{ netbox_token }}"
-          Accept: "application/json"
-        validate_certs: yes
-        return_content: yes
-      register: result_226
-      ignore_errors: yes
-      when: not primary_ip
-
-    - name: Set primary_ip if found in 226
-      set_fact:
-        primary_ip: "{{ (result_226.json.results[0].primary_ip4.address | split('/')).0 }}"
-      when: 
-        - not primary_ip
-        - result_226 is succeeded
-        - result_226.json.count > 0
-
-    # Check role_id=478 (dcim)
-    - name: Search for role_id=478 in dcim
-      uri:
-        url: "{{ netbox_base }}dcim/devices/?role_id=478&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
-        headers:
-          Authorization: "Token {{ netbox_token }}"
-          Accept: "application/json"
-        validate_certs: yes
-        return_content: yes
-      register: result_478
-      ignore_errors: yes
-      when: not primary_ip
-
-    - name: Set primary_ip if found in 478
-      set_fact:
-        primary_ip: "{{ (result_478.json.results[0].primary_ip4.address | split('/')).0 }}"
-      when: 
-        - not primary_ip
-        - result_478 is succeeded
-        - result_478.json.count > 0
-
-    # Check role_id=136 (virtualization)
-    - name: Search for role_id=136 in virtualization
-      uri:
-        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=136&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
-        headers:
-          Authorization: "Token {{ netbox_token }}"
-          Accept: "application/json"
-        validate_certs: yes
-        return_content: yes
-      register: result_136
-      ignore_errors: yes
-      when: not primary_ip
-
-    - name: Set primary_ip if found in 136
-      set_fact:
-        primary_ip: "{{ (result_136.json.results[0].primary_ip4.address | split('/')).0 }}"
-      when: 
-        - not primary_ip
-        - result_136 is succeeded
-        - result_136.json.count > 0
-
-    # Check role_id=477 (virtualization)
-    - name: Search for role_id=477 in virtualization
-      uri:
-        url: "{{ netbox_base }}virtualization/virtual-machines/?role_id=477&cf_cmd_gnid={{ extra_vars.RequestDetails.GNID }}"
-        headers:
-          Authorization: "Token {{ netbox_token }}"
-          Accept: "application/json"
-        validate_certs: yes
-        return_content: yes
-      register: result_477
-      ignore_errors: yes
-      when: not primary_ip
-
-    - name: Set primary_ip if found in 477
-      set_fact:
-        primary_ip: "{{ (result_477.json.results[0].primary_ip4.address | split('/')).0 }}"
-      when: 
-        - not primary_ip
-        - result_477 is succeeded
-        - result_477.json.count > 0
-
-    - name: Update PrimaryIP in RequestDetails
-      set_fact:
-        extra_vars: "{{ extra_vars | combine({'RequestDetails': extra_vars.RequestDetails | combine({'PrimaryIP': primary_ip}) }, recursive=true) }}"
-      when: primary_ip
-
+    # ─── optional: show the new structure ──────────────────────────────────────
     - name: Show updated extra_vars
       debug:
         var: hostvars[inventory_hostname].extra_vars
-      when: 
-        - show_extra_vars | default(true)
-        - primary_ip is defined
+      when: show_extra_vars | default(true)
 
-    - name: Fail if no device found
-      fail:
-        msg: "No device found with GNID {{ extra_vars.RequestDetails.GNID }}"
-      when: not primary_ip
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MINIMAL SET OF CHANGES
+
+
+1 tasks/netbox_palo_fw_lookup.yml
+# … everything above stays exactly the same …
+
+    - name: Store results from first non-empty hit
+      set_fact:
+        nb_primary_ip:  "{{ (_nb.json.results[0].primary_ip4.address
+                             | default(_nb.json.results[0].primary_ip.address))
+                             | split('/') | first }}"
+        nb_role_id:     "{{ ep.role }}"
+        nb_panorama_ip: "{{ _nb.json.results[0].custom_fields.panorama_ip | default('') }}"
+      when:
+        - _nb.json.count | default(0) | int > 0
+        - nb_primary_ip is not defined
+
+    - name: Derive jumphost for the matched role
+      set_fact:
+        nb_jumphost: "{{ '10.16.2.22'
+                         if nb_role_id in ['478','477','226','85']
+                         else 'localhost' }}"
+      when: nb_primary_ip is defined
+
+    - name: Break the loop once we have a hit
+      meta: end_loop
+      when: nb_primary_ip is defined
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MAIN PB EXCERPT:
+
+
+  tasks:
+    # … your original debug + include_tasks + fail block …
+
+    - name: Inject NetBox data into extra_vars.RequestDetails
+      set_fact:
+        extra_vars: >-
+          {{ extra_vars
+             | combine(
+                 {'RequestDetails':
+                   extra_vars.RequestDetails
+                   | combine({
+                       'PrimaryIP'   : nb_primary_ip,
+                       'role_id'     : nb_role_id,
+                       'jumphost'    : nb_jumphost,
+                       'panorama_ip' : nb_panorama_ip
+                     })
+                 },
+                 recursive=true
+               )
+          }}
