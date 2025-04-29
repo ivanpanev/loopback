@@ -1,2 +1,4 @@
-curl -k "https://100.66.31.9/api/?type=keygen&user=t3-admin&password=Px3Kx[8SxN"
-curl: (3) [globbing] error: bad range specification after pos 67
+bash curl -k 'https://100.66.31.9/api/?type=keygen&user=t3-admin&password=Px3Kx[8SxN'
+
+
+bash curl -k "https://100.66.31.9/api/?type=keygen&user=t3-admin&password=Px3Kx\[8SxN"
