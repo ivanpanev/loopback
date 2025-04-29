@@ -1,4 +1,25 @@
-bash curl -k 'https://100.66.31.9/api/?type=keygen&user=t3-admin&password=Px3Kx[8SxN'
+#############################################################################
+# Early connectivity probe (TCP + Palo-Alto key-gen)                        #
+#############################################################################
+- name: Verify TCP 443 is open from {{ nb_jumphost }}
+  wait_for:
+    host: "{{ nb_primary_ip }}"
+    port: 443
+    timeout: 5
+    state: started
+  delegate_to: "{{ nb_jumphost }}"
 
-
-bash curl -k "https://100.66.31.9/api/?type=keygen&user=t3-admin&password=Px3Kx\[8SxN"
+- name: Palo-Alto API probe – keygen
+  uri:
+    url: "https://{{ nb_primary_ip }}/api/"
+    validate_certs: no           # ignore PA self-signed cert
+    method: GET
+    return_content: yes
+    status_code: 200
+    params:
+      type: keygen
+      user: "{{ api_user }}"
+      password: "{{ api_pass }}"
+  delegate_to: "{{ nb_jumphost }}"
+  register: api_ping
+  failed_when: "'<response status=\"success\"' not in api_ping.content"
