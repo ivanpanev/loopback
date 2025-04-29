@@ -1,315 +1,120 @@
-Here's the error I'm getting:
+Ansible playbook:
 
-{
-  "changed": false,
-  "rc": 1,
-  "stdout": "Gon Get API Key.\n",
-  "stdout_lines": [
-    "Gon Get API Key."
-  ],
-  "stderr": "Traceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 174, in _new_conn\n    conn = connection.create_connection(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 95, in create_connection\n    raise err\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 85, in create_connection\n    sock.connect(sa)\nsocket.timeout: timed out\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 715, in urlopen\n    httplib_response = self._make_request(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 404, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 1060, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 363, in connect\n    self.sock = conn = self._new_conn()\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 179, in _new_conn\n    raise ConnectTimeoutError(\nurllib3.exceptions.ConnectTimeoutError: (<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)')\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 667, in send\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 801, in urlopen\n    retries = retries.increment(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/retry.py\", line 594, in increment\n    raise MaxRetryError(_pool, url, error or ResponseError(cause))\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api/?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)'))\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 37, in <module>\n    main()\n  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 33, in main\n    api_key = get_api_key(palo_ip, username, password)\n  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 21, in get_api_key\n    resp = requests.get(url, verify=False, timeout=10,\n  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 73, in get\n    return request(\"get\", url, params=params, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 59, in request\n    return session.request(method=method, url=url, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 688, in send\n    raise ConnectTimeout(e, request=request)\nrequests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api/?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)'))\n",
-  "stderr_lines": [
-    "Traceback (most recent call last):",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 174, in _new_conn",
-    "    conn = connection.create_connection(",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 95, in create_connection",
-    "    raise err",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 85, in create_connection",
-    "    sock.connect(sa)",
-    "socket.timeout: timed out",
-    "",
-    "During handling of the above exception, another exception occurred:",
-    "",
-    "Traceback (most recent call last):",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 715, in urlopen",
-    "    httplib_response = self._make_request(",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 404, in _make_request",
-    "    self._validate_conn(conn)",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 1060, in _validate_conn",
-    "    conn.connect()",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 363, in connect",
-    "    self.sock = conn = self._new_conn()",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 179, in _new_conn",
-    "    raise ConnectTimeoutError(",
-    "urllib3.exceptions.ConnectTimeoutError: (<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)')",
-    "",
-    "During handling of the above exception, another exception occurred:",
-    "",
-    "Traceback (most recent call last):",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 667, in send",
-    "    resp = conn.urlopen(",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 801, in urlopen",
-    "    retries = retries.increment(",
-    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/retry.py\", line 594, in increment",
-    "    raise MaxRetryError(_pool, url, error or ResponseError(cause))",
-    "urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api/?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)'))",
-    "",
-    "During handling of the above exception, another exception occurred:",
-    "",
-    "Traceback (most recent call last):",
-    "  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 37, in <module>",
-    "    main()",
-    "  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 33, in main",
-    "    api_key = get_api_key(palo_ip, username, password)",
-    "  File \"/root/.ansible/tmp/ansible-tmp-1745959979.1430328-148-104688068195404/main.py\", line 21, in get_api_key",
-    "    resp = requests.get(url, verify=False, timeout=10,",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 73, in get",
-    "    return request(\"get\", url, params=params, **kwargs)",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 59, in request",
-    "    return session.request(method=method, url=url, **kwargs)",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 589, in request",
-    "    resp = self.send(prep, **send_kwargs)",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 703, in send",
-    "    r = adapter.send(request, **kwargs)",
-    "  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 688, in send",
-    "    raise ConnectTimeout(e, request=request)",
-    "requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api/?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7f3cb77e00a0>, 'Connection to 100.66.31.9 timed out. (connect timeout=10)'))"
-  ],
-  "msg": "non-zero return code",
-  "exception": "NoneType: None\n",
-  "_ansible_no_log": false,
-  "_ansible_delegated_vars": {
-    "ansible_host": "10.160.2.22",
-    "ansible_port": null,
-    "ansible_user": "tier3.global.ip"
-  }
-}
-
-
-Here's the main.yml playbook running the main.py script:
 
 ---
-- name: Lookup device in NetBox and update PrimaryIP
+
+
+- name: Read Devices Data From Netbox
   hosts: localhost
-  gather_facts: no
-  connection: local
-  vars:
-    netbox_base: "https://netbox.gt-t.net/api/"
-    scripts_dir: "scripts/"
-
+  gather_facts: false
   tasks:
-  - name: Get vault passwords
-    set_fact:
-      vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-    no_log: true
+    - name: Get vault passwords
+      ansible.builtin.set_fact:
+        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
+      no_log: true
 
-  - name: Set NetBox token as a fact
-    set_fact:
-      netbox_token: "{{ vault.netbox_soc_token }}"
-    no_log: true
+    - name: Netbox Palo Estate Retreival Task
+      ansible.builtin.script:
+        cmd: read_devices_from_netbox.py
+        executable: /usr/bin/python3
+      environment:
+        NETBOX_TOKEN: "{{ vault.netbox_soc_token }}"
+      register: logNewNetboxDataVariable
+      changed_when: false
+      delegate_to: 10.160.2.22
 
-  # - name: Show incoming hostvars/extra_vars
-  #   debug:
-  #     var: hostvars[inventory_hostname]
-  #   when: show_extra_vars | default(true)
-
-  - name: Determine current GNID once
-    set_fact:
-      current_gnid: >-
-        {{
-            (hostvars[inventory_hostname].extra_vars.RequestDetails.GNID
-               if (hostvars[inventory_hostname].extra_vars is defined
-                   and hostvars[inventory_hostname].extra_vars.RequestDetails is defined)
-               else RequestDetails.GNID)
-        }}
-
-  - name: Lookup PaloAlto firewall details in NetBox
-    include_tasks: include_tasks/netbox_palo_fw_lookup.yml
-
-  - name: Bail if no firewall entry was found
-    fail:
-      msg: "No device found with GNID {{ current_gnid }}"
-    when: nb_primary_ip is not defined
-
-  - name: Ensure extra_vars dict exists
-    set_fact:
-      extra_vars: {}
-    when: extra_vars is not defined
-
-  - name: Inject NetBox data into extra_vars.RequestDetails
-    set_fact:
-      extra_vars: >-
-        {{ extra_vars
-           | combine(
-               {'RequestDetails':
-                 (extra_vars.RequestDetails | default({}))
-                 | combine({
-                     'PrimaryIP'   : nb_primary_ip,
-                     'role_id'     : nb_role_id,
-                     'jumphost'    : nb_jumphost,
-                     'panorama_ip' : nb_panorama_ip
-                   })
-               },
-               recursive=true
-             )
-        }}
-
-  - name: Show updated extra_vars
-    debug:
-      var: hostvars[inventory_hostname].extra_vars
-    when:
-      - show_extra_vars | default(true)
-      - nb_primary_ip is defined
-
-  - name: Serialise extra_vars for the Python script
-    set_fact:
-      extra_vars_json: "{{ extra_vars | to_json }}"
-    no_log: true
-
-  # - name: Verify TCP 443 is open from {{ nb_jumphost }}
-  #   wait_for:
-  #     host: "{{ nb_primary_ip }}"
-  #     port: 443
-  #     timeout: 5
-  #     state: started
-  #   delegate_to: 10.160.2.22
-  
-  # - name: Palo-Alto API probe – keygen
-  #   uri:
-  #     url: "https://{{ nb_primary_ip }}/api/"
-  #     validate_certs: no
-  #     method: GET
-  #     return_content: yes
-  #     status_code: 200
-  #     params:
-  #       type: keygen
-  #       user: "t3-admin"
-  #       password: "Px3Kx[8SxN"
-  #   delegate_to: 10.160.2.22
-  #   register: api_ping
-  #   failed_when: "'<response status=\"success\"' not in api_ping.content"
-
-#===========================================
-
-  # - name: Ensure script folder exists on {{ nb_jumphost }}
-  #   file:
-  #     path: /tmp/palo_scripts
-  #     state: directory
-  #     mode: '0755'
-  #   delegate_to: "{{ nb_jumphost }}"
-  #   when: nb_jumphost != 'localhost'
-
-  # - name: Copy Python helper files to {{ nb_jumphost }}
-  #   copy:
-  #     src: "{{ item }}"
-  #     dest: "/tmp/palo_scripts/{{ item | basename }}"
-  #     mode: '0755'
-  #   loop: "{{ lookup('fileglob', scripts_dir + '/*.py', wantlist=True) }}"
-  #   delegate_to: "{{ nb_jumphost }}"
-  #   when: nb_jumphost != 'localhost'
-
-  # - name: Run main.py on {{ nb_jumphost }}
-  #   command: >
-  #     python3 {{
-  #       (nb_jumphost == 'localhost')
-  #       | ternary(scripts_dir + '/main.py', '/tmp/palo_scripts/main.py')
-  #     }}
-  #   delegate_to: "{{ nb_jumphost }}"
-  #   environment:
-  #     EXTRA_VARS: "{{ extra_vars_json }}"
-  #   register: python_result
-
-  # - name: FALSE Show effective UID and routing table (debug)
-  #   command: |
-  #     sh -c 'id -u && ip route get {{ nb_primary_ip }}'
-  #   delegate_to: "{{ nb_jumphost }}"
-  #   become: false
-
-  # - name: TRUE Show effective UID and routing table (debug)
-  #   command: |
-  #     sh -c 'id -u && ip route get {{ nb_primary_ip }}'
-  #   delegate_to: "{{ nb_jumphost }}"
-  #   become: true
-
-#   - name: Ensure script folder exists on {{ nb_jumphost }}
-#     file:
-#       path: /tmp/palo_scripts
-#       state: directory
-#       mode: '0755'
-#     become: false
-#     delegate_to: "{{ nb_jumphost }}"
-#     when: nb_jumphost != 'localhost'
-
-#   - name: Copy Python helper files to {{ nb_jumphost }}
-#     copy:
-#       src: "{{ item }}"
-#       dest: "/tmp/palo_scripts/{{ item | basename }}"
-#       mode: '0755'
-#     loop: "{{ lookup('fileglob', scripts_dir + '/*.py', wantlist=True) }}"
-#     delegate_to: "{{ nb_jumphost }}"
-#     become: false                  # <─── force NO privilege escalation
-#     when: nb_jumphost != 'localhost'
-
-#   - name: Run main.py on {{ nb_jumphost }}
-#     command: >
-#       python3 {{
-#         (nb_jumphost == 'localhost')
-#         | ternary(scripts_dir + '/main.py', '/tmp/palo_scripts/main.py')
-#       }}
-#     delegate_to: "{{ nb_jumphost }}"
-#     become: false
-#     environment:
-#       EXTRA_VARS: "{{ extra_vars_json }}"
-#       HTTP_PROXY: ""
-#       HTTPS_PROXY: ""
-#       NO_PROXY: "{{ nb_primary_ip }}"
-#     register: python_result
-# #+========================================
-
-
-  - name: Run main.py
-    ansible.builtin.script:
-      cmd: main.py
-      executable: /usr/bin/python3
-    register: logNewNetboxDataVariable
-    changed_when: false
-    become: false
-    delegate_to: 10.160.2.22
-
-  - name: Show script stdout
-    debug:
-      var: python_result.stdout_lines
-    when: show_extra_vars | default(true)
+    - name: Extract last line from stdout to store the read results
+      set_fact:
+        retreived_data: "{{ logNewNetboxDataVariable.stdout_lines[-1] | from_json }}"
 
 
 
+Python script:
 
-Here's the main.py script:
 
-#import gttPaloUtilities
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
-import sys
-import time
-import json
-import itertools
-from functools import partial
-#from global_logger import logger
 import requests
-import urllib3
-import xml.etree.ElementTree as ET
-import re
-import urllib
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from getpass import getpass
+import io
+import csv
+from os import environ
 
-def get_api_key(palo_ip, username, password):
-    url = (f"https://{palo_ip}/api/?"
-           + urllib.parse.urlencode({"type": "keygen",
-                                     "user": username,
-                                     "password": password}))
-    resp = requests.get(url, verify=False, timeout=10,
-                        proxies={"http": None, "https": None})
-    resp.raise_for_status()
-    return ET.fromstring(resp.content).findtext(".//key")
+def get_data_for_each_entry(entry):
+    entryName = entry.get('name', 'Unknown')
+    entryStatus = entry.get('status', {}).get('value', 'Unknown')
+    if entry.get('primary_ip', 'Unknown'):
+        entryMgmtIp = entry.get('primary_ip', 'Unknown').get('address', 'Unknown')
+    else:
+        entryMgmtIp = 'Unknown'
+    if entry.get('role', 'Unknown'):
+        entryRole = entry.get('role', {}).get('name', 'Unknown')
+    else:
+        entryRole = 'Unknown'
+    if entry.get('site', 'Unknown'):
+        entrySite = entry.get('site', {}).get('name', 'Unknown')
+    else: 
+        entrySite = 'Unknown'
+    if entry.get('tenant', 'Unknown'):
+        entryTenant = entry.get('tenant', 'Unknown').get('name', 'Unknown')
+    else:
+        entryTenant = 'Unknown'
+    entryGNID = entry.get('custom_fields', {}).get('cmd_gnid', 'Unknown')
+    entrySLID = entry.get('custom_fields', {}).get('cmd_slid', 'Unknown')
+    entryPanoramaIP = entry.get('custom_fields', {}).get('panorama_ip', 'Unknown')
+
+    return entryName, entryStatus, entryMgmtIp, entryPanoramaIP, entryRole, entrySite, entryTenant, entryGNID, entrySLID
+
+def get_all_devices_by_roleid(role_id, token):
+    headers = { 'Content-Type': 'application/json', 'Authorization': token }
+    response = requests.get(f"https://netbox.gt-t.net/api/dcim/devices/?role_id={role_id}&limit=0", headers=headers).json()
+    print(f"Response: {response}")
+    devicesDataList = []
+    if response['results']:
+        for entry in response['results']:
+            if not isinstance(entry, dict):
+                continue 
+            deviceName, deviceStatus, deviceMgmtIp, devicePanoramaIp, deviceRole, deviceSite, deviceTenant, deviceGNID, deviceSLID = get_data_for_each_entry(entry)
+            devicesDataList.append([deviceName, deviceStatus, deviceMgmtIp, devicePanoramaIp, deviceRole, deviceSite, deviceTenant, deviceGNID, deviceSLID])
+
+    return devicesDataList
+
+def get_all_VMs_by_roleid(role_id, token):
+    headers = { 'Content-Type': 'application/json', 'Authorization': token }
+    response = requests.get(f"https://netbox.gt-t.net/api/virtualization/virtual-machines/?role_id={role_id}&limit=0", headers=headers).json()
+    print(f"Response: {response}")
+    vmsDataList = []
+    if response['results']:
+        for entry in response['results']:
+            if not isinstance(entry, dict):
+                continue 
+            vmName, vmStatus, vmMgmtIp, vmPanoramaIp, vmRole, vmSite, vmTenant, vmGNID, vmSLID = get_data_for_each_entry(entry)
+            vmsDataList.append([vmName, vmStatus, vmMgmtIp, vmPanoramaIp, vmRole, vmSite, vmTenant, vmGNID, vmSLID])
+
+    return vmsDataList
+
+def encode_to_csv(dataList):
+    output = io.StringIO()
+    csv_writer = csv.writer(output)
+    csv_writer.writerow(['Hostname', 'Status', 'ManagementIP', 'PanoramaIP', 'Role', 'Site', 'Tenant', 'GNID', 'SLID'])
+    csv_writer.writerows(dataList)
+    return output.getvalue()
 
 def main():
-    palo_ip = "100.66.31.9"
-    username = 't3-admin'
-    password = 'Px3Kx[8SxN'
+    netboxToken = 'Token ' + environ['NETBOX_TOKEN']
+    #roleIDs = ['226', '478', '477']
+    roleIDs = ['226', '478', '136', '477']
+    dataList = []
+    
+    for role_id in roleIDs:
+        devicesDataList = get_all_devices_by_roleid(role_id, netboxToken)
+        vmsDataList = get_all_VMs_by_roleid(role_id, netboxToken)
+        dataList += devicesDataList + vmsDataList
 
-    print("Gon Get API Key.")
-
-    api_key = get_api_key(palo_ip, username, password)
-    print(f"{api_key}")
+    print(json.dumps(dataList))
 
 if __name__ == "__main__":
     main()
+
+
+
