@@ -1,120 +1,98 @@
-Ansible playbook:
-
-
 ---
-
-
-- name: Read Devices Data From Netbox
+- name: Simple reach-test to Palo Alto from jumphost
   hosts: localhost
   gather_facts: false
+  connection: local
+
+  vars:
+    jumphost      : "10.16.2.22"     # ← the host that can reach the FW
+    test_ip       : "100.66.31.9"    # ← firewall management-IP to probe
+    test_user     : "t3-admin"
+    test_pass     : "Px3Kx[8SxN"
+    probe_name    : "palo_api_probe.py"   # file that lives in repo root
+
   tasks:
-    - name: Get vault passwords
-      ansible.builtin.set_fact:
-        vault: "{{ lookup('hashi_vault', 'secret=ansible/data/tss') }}"
-      no_log: true
+  ####################################################################
+  # 0.  Copy the tiny helper to the jumphost **as the ssh user**      #
+  ####################################################################
+  - name: Copy probe helper (no sudo)
+    copy:
+      src : "{{ probe_name }}"
+      dest: /tmp/{{ probe_name }}
+      mode: "0755"
+    delegate_to: "{{ jumphost }}"
+    become: false            # ← absolutely no privilege-escalation
 
-    - name: Netbox Palo Estate Retreival Task
-      ansible.builtin.script:
-        cmd: read_devices_from_netbox.py
-        executable: /usr/bin/python3
-      environment:
-        NETBOX_TOKEN: "{{ vault.netbox_soc_token }}"
-      register: logNewNetboxDataVariable
-      changed_when: false
-      delegate_to: 10.160.2.22
+  ####################################################################
+  # 1.  Run the helper, passing vars via ENV, still no sudo           #
+  ####################################################################
+  - name: Run probe helper (direct socket, no proxy)
+    command: python3 /tmp/{{ probe_name }}
+    delegate_to: "{{ jumphost }}"
+    become: false
+    environment:
+      FW_IP   : "{{ test_ip }}"
+      FW_USER : "{{ test_user }}"
+      FW_PASS : "{{ test_pass }}"
+      HTTP_PROXY : ""
+      HTTPS_PROXY: ""
+      NO_PROXY   : "{{ test_ip }}"
+    register: probe
 
-    - name: Extract last line from stdout to store the read results
-      set_fact:
-        retreived_data: "{{ logNewNetboxDataVariable.stdout_lines[-1] | from_json }}"
+  - debug:
+      var: probe.stdout_lines
 
 
 
-Python script:
 
 
-import requests
-import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from getpass import getpass
-import io
-import csv
-from os import environ
 
-def get_data_for_each_entry(entry):
-    entryName = entry.get('name', 'Unknown')
-    entryStatus = entry.get('status', {}).get('value', 'Unknown')
-    if entry.get('primary_ip', 'Unknown'):
-        entryMgmtIp = entry.get('primary_ip', 'Unknown').get('address', 'Unknown')
-    else:
-        entryMgmtIp = 'Unknown'
-    if entry.get('role', 'Unknown'):
-        entryRole = entry.get('role', {}).get('name', 'Unknown')
-    else:
-        entryRole = 'Unknown'
-    if entry.get('site', 'Unknown'):
-        entrySite = entry.get('site', {}).get('name', 'Unknown')
-    else: 
-        entrySite = 'Unknown'
-    if entry.get('tenant', 'Unknown'):
-        entryTenant = entry.get('tenant', 'Unknown').get('name', 'Unknown')
-    else:
-        entryTenant = 'Unknown'
-    entryGNID = entry.get('custom_fields', {}).get('cmd_gnid', 'Unknown')
-    entrySLID = entry.get('custom_fields', {}).get('cmd_slid', 'Unknown')
-    entryPanoramaIP = entry.get('custom_fields', {}).get('panorama_ip', 'Unknown')
 
-    return entryName, entryStatus, entryMgmtIp, entryPanoramaIP, entryRole, entrySite, entryTenant, entryGNID, entrySLID
 
-def get_all_devices_by_roleid(role_id, token):
-    headers = { 'Content-Type': 'application/json', 'Authorization': token }
-    response = requests.get(f"https://netbox.gt-t.net/api/dcim/devices/?role_id={role_id}&limit=0", headers=headers).json()
-    print(f"Response: {response}")
-    devicesDataList = []
-    if response['results']:
-        for entry in response['results']:
-            if not isinstance(entry, dict):
-                continue 
-            deviceName, deviceStatus, deviceMgmtIp, devicePanoramaIp, deviceRole, deviceSite, deviceTenant, deviceGNID, deviceSLID = get_data_for_each_entry(entry)
-            devicesDataList.append([deviceName, deviceStatus, deviceMgmtIp, devicePanoramaIp, deviceRole, deviceSite, deviceTenant, deviceGNID, deviceSLID])
 
-    return devicesDataList
 
-def get_all_VMs_by_roleid(role_id, token):
-    headers = { 'Content-Type': 'application/json', 'Authorization': token }
-    response = requests.get(f"https://netbox.gt-t.net/api/virtualization/virtual-machines/?role_id={role_id}&limit=0", headers=headers).json()
-    print(f"Response: {response}")
-    vmsDataList = []
-    if response['results']:
-        for entry in response['results']:
-            if not isinstance(entry, dict):
-                continue 
-            vmName, vmStatus, vmMgmtIp, vmPanoramaIp, vmRole, vmSite, vmTenant, vmGNID, vmSLID = get_data_for_each_entry(entry)
-            vmsDataList.append([vmName, vmStatus, vmMgmtIp, vmPanoramaIp, vmRole, vmSite, vmTenant, vmGNID, vmSLID])
 
-    return vmsDataList
 
-def encode_to_csv(dataList):
-    output = io.StringIO()
-    csv_writer = csv.writer(output)
-    csv_writer.writerow(['Hostname', 'Status', 'ManagementIP', 'PanoramaIP', 'Role', 'Site', 'Tenant', 'GNID', 'SLID'])
-    csv_writer.writerows(dataList)
-    return output.getvalue()
+
+
+
+
+
+
+
+
+
+
+
+#!/usr/bin/env python3
+"""
+Reach-test helper: tries a single key-gen request and prints the result.
+Expects FW_IP, FW_USER, FW_PASS in the environment.
+"""
+
+import os, urllib.parse, urllib3, requests, xml.etree.ElementTree as ET
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def main():
-    netboxToken = 'Token ' + environ['NETBOX_TOKEN']
-    #roleIDs = ['226', '478', '477']
-    roleIDs = ['226', '478', '136', '477']
-    dataList = []
-    
-    for role_id in roleIDs:
-        devicesDataList = get_all_devices_by_roleid(role_id, netboxToken)
-        vmsDataList = get_all_VMs_by_roleid(role_id, netboxToken)
-        dataList += devicesDataList + vmsDataList
+    ip   = os.environ["FW_IP"]
+    user = os.environ["FW_USER"]
+    pwd  = os.environ["FW_PASS"]
 
-    print(json.dumps(dataList))
+    url = f"https://{ip}/api/?" + urllib.parse.urlencode(
+        {"type": "keygen", "user": user, "password": pwd}
+    )
+
+    print("Gon Get API Key.")
+
+    r = requests.get(url, verify=False, timeout=10,
+                     proxies={"http": None, "https": None})
+    r.raise_for_status()
+
+    key = ET.fromstring(r.content).findtext(".//key")
+    if not key:
+        raise RuntimeError("No <key> element in response")
+
+    print("SUCCESS – key prefix:", key[:15], "…")   # keep the key private
 
 if __name__ == "__main__":
     main()
-
-
-
