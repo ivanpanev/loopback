@@ -1,25 +1,272 @@
-#############################################################################
-# Early connectivity probe (TCP + Palo-Alto key-gen)                        #
-#############################################################################
-- name: Verify TCP 443 is open from {{ nb_jumphost }}
-  wait_for:
-    host: "{{ nb_primary_ip }}"
-    port: 443
-    timeout: 5
-    state: started
-  delegate_to: "{{ nb_jumphost }}"
+#import gttPaloUtilities
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+import sys
+import time
+import json
+import itertools
+from functools import partial
+#from global_logger import logger
+import requests
+import urllib3
+import xml.etree.ElementTree as ET
+import re
 
-- name: Palo-Alto API probe – keygen
-  uri:
-    url: "https://{{ nb_primary_ip }}/api/"
-    validate_certs: no           # ignore PA self-signed cert
-    method: GET
-    return_content: yes
-    status_code: 200
-    params:
-      type: keygen
-      user: "{{ api_user }}"
-      password: "{{ api_pass }}"
-  delegate_to: "{{ nb_jumphost }}"
-  register: api_ping
-  failed_when: "'<response status=\"success\"' not in api_ping.content"
+# Thread-safe ID generator for ID-ing each sub-task within the ticket.
+object_id_generator = itertools.count(1)
+rule_id_generator = itertools.count(1)
+
+def addr_object_change_handler(palo_ip, api_key, ticket_id, ticket_subtask_id, addrObjectChange):
+    print(f"[{ticket_id}-{ticket_subtask_id}] Processing address object change.")
+    logger.debug(f"Initiating object configuration: {ticket_id} subtask {ticket_subtask_id}!")
+    if addrObjectChange['ChangeType'] == 'Add':
+        object_creation_success_flag = gttPaloUtilities.configure_address_object_add(palo_ip=palo_ip, api_key=api_key, addr_object_params=addrObjectChange, ticket_subtask_id=ticket_subtask_id)
+        if object_creation_success_flag:
+            print(f"[{ticket_id}-{ticket_subtask_id}] Object {addrObjectChange['ObjectName']} configured successfully!")
+            logger.debug(f"Successfully executed ticket {ticket_id} subtask {ticket_subtask_id}!")
+        else:
+            print(f"[{ticket_id}-{ticket_subtask_id}] Object {addrObjectChange['ObjectName']} configuration failed!")
+            logger.warning(f"Failed to execute ticket {ticket_id} subtask {ticket_subtask_id}!")
+
+def security_rule_change_handler(palo_ip, api_key, ticket_id, ticket_subtask_id, ruleChange, prefetched_data):
+    print(f"[{ticket_id}-{ticket_subtask_id}] Processing security rule change.")
+    logger.debug(f"Initiating security rule configuration: {ticket_id} subtask {ticket_subtask_id}!")
+    if ruleChange['ChangeType'] == 'Add':
+        rule_creation_success_flag = gttPaloUtilities.configure_security_policy_add(palo_ip=palo_ip, api_key=api_key, rule_params=ruleChange, prefetched_data=prefetched_data, ticket_subtask_id=ticket_subtask_id)
+        if rule_creation_success_flag:
+            print(f"[{ticket_id}-{ticket_subtask_id}] Security rule {ruleChange['RuleName']} configured successfully!")
+            logger.debug(f"Successfully executed ticket {ticket_id} subtask {ticket_subtask_id}!")
+        else:
+            print(f"[{ticket_id}-{ticket_subtask_id}] Security rule {ruleChange['RuleName']} configuration failed!")
+            logger.warning(f"Failed to execute ticket {ticket_id} subtask {ticket_subtask_id}!")
+
+def get_api_key(palo_ip, username, password):
+    """
+    Generates an XML API key from a firewall.
+    
+    Args:
+        palo_ip (str): Management IP address of the firewall.
+        username (str): Username for the firewall.
+        password (str): Password for the firewall.
+        
+    Returns:
+        str: An XML API key.
+        
+    Raises:
+        Exception: If the API key retrieval fails.
+    """
+    print(f"Username: {username}, password: {password}")
+    url = f'https://{palo_ip}/api'
+    params = {
+        'type': 'keygen',
+        'user': username,
+        'password': password
+    }
+    try:
+        print(f"Trying to get. URL is '{url}'")
+        response = requests.get(url, params=params, verify=False)
+        if response.status_code == 200:
+            print("Got 200!!!")
+            root = ET.fromstring(response.content)
+            api_key_element = root.find('.//key')
+            print("Gonna see if api key element is None")
+            if api_key_element is not None:
+                print("API KEY IS NOT NONE!!")
+                #logger.debug(f"Successfully obtained API token.")
+                return api_key_element.text
+        else:
+            #logger.debug(f"Failed to obtain API token. Response text: {response.text}")
+            raise Exception(f"Failed to obtain an API Key from device {palo_ip}. Status code:", response.status_code, "Response:", response.text)
+    except Exception as e:
+        #logger.debug(f"An exception occurred while obtaining API token. Exception: {e}")
+        raise Exception(f"An error occurred during the API Key retreival from device {palo_ip}: {e}")
+
+def main():
+    # Load dummy input data
+    sample_input_file = "sampleInputs.json"
+    with open(sample_input_file, "r") as file:
+        sample_input = json.load(file)
+
+    ticket_id = sample_input["RequestDetails"]["TicketNumber"]
+    #palo_ip = sample_input["RequestDetails"]["PrimaryIP"]
+    palo_ip = "100.66.31.9"
+
+    #logger.set_context(ticket_id=ticket_id, palo_ip=palo_ip)
+
+    username = 't3-admin'
+    password = 'Px3Kx[8SxN'
+
+    total_start = time.perf_counter()
+    print(f"[{ticket_id}] Starting script execution.")
+    print("Gon Get API Key.")
+
+    # Generate and store API token
+    startTime = time.perf_counter()
+    api_key = get_api_key(palo_ip, username, password)
+    elapsed = time.perf_counter() - startTime
+    print(f"[{ticket_id}] Get API Key completed in {elapsed:.2f} seconds.")
+
+    #Verify if device is in a High-Availability cluster and if so, ensure changes are being performed on the 'active' cluster member. End script execution if in a 'bad' HA state.
+    startTime = time.perf_counter()
+    haState, haPeerIp = gttPaloUtilities.get_ha_status_and_peer_ip(palo_ip, api_key)
+    if haState == 'active' or haState == 'active-primary':
+        pass
+    elif haState == 'passive' or haState == 'active-secondary':
+        palo_ip = haPeerIp
+    elif haState == 'suspended' or haState == 'tentative' or haState == 'non-functional' or haState == 'initial':
+        print("BAD HA STATE. Terminating script.")
+        sys.exit()
+    elapsed = time.perf_counter() - startTime
+    print(f"[{ticket_id}] HA check completed in {elapsed:.2f} seconds.")
+
+    # Split changes into lists by type
+    addrObjectChanges = [change for change in sample_input["Changes"] if change["ChangeCategory"] == "AddressObject"]
+    ruleChanges = [change for change in sample_input["Changes"] if change["ChangeCategory"] == "SecurityRule"]
+
+    # Handle each address object change in parallel
+    startTime = time.perf_counter()
+    if addrObjectChanges:
+        with ThreadPoolExecutor(max_workers=5) as objectExecutor: 
+            futures = [objectExecutor.submit(addr_object_change_handler, palo_ip, api_key, ticket_id, f"OBJ-{next(object_id_generator)}", addr_change) for addr_change in addrObjectChanges]
+            for future in as_completed(futures):
+                future.result()
+    elapsed = time.perf_counter() - startTime
+    print(f"[{ticket_id}] Address objects configured in {elapsed:.2f} seconds.")
+
+    # Prefetch firewall data for logical validations of security rules in parallel
+    startTime = time.perf_counter()
+    if ruleChanges:
+        with ThreadPoolExecutor(max_workers=6) as prefetchExecutor: 
+            futures = {
+                prefetchExecutor.submit(gttPaloUtilities.get_all_interfaces, palo_ip, api_key): 'existingInterfaces',
+                prefetchExecutor.submit(gttPaloUtilities.get_all_security_rules, palo_ip, api_key): 'existingSecurityPolicy',
+                prefetchExecutor.submit(gttPaloUtilities.get_all_service_objects, palo_ip, api_key): 'existingServiceObjects',
+                prefetchExecutor.submit(gttPaloUtilities.get_all_address_objects, palo_ip, api_key): 'existingAddressObjects',
+                prefetchExecutor.submit(gttPaloUtilities.get_all_address_group_objects, palo_ip, api_key): 'existingAddressGroupObjects',
+                prefetchExecutor.submit(gttPaloUtilities.get_all_regions, palo_ip, api_key): 'existingRegions'
+            }
+        
+        prefetched_data = {}
+        for future in as_completed(futures):
+            task_name = futures[future]
+            try:
+                prefetched_data[task_name] = future.result()
+            except Exceptions as e:
+                print(f"Error prefetching existing configuration details {task_name}: {e}")
+
+    elapsed = time.perf_counter() - startTime
+    print(f"[{ticket_id}] Prefetched firewall data for logical validations in {elapsed:.2f} seconds.")
+    print(f"[{ticket_id}] Prefetch data: {prefetched_data}")
+
+    # Handle each security rule change in parallel
+    startTime = time.perf_counter()
+    if ruleChanges:
+        with ThreadPoolExecutor(max_workers=5) as ruleExecutor:
+            futures = [ruleExecutor.submit(security_rule_change_handler, palo_ip, api_key, ticket_id, f"SEC-RULE-{next(rule_id_generator)}", rule_change, prefetched_data) for rule_change in ruleChanges]
+            for future in as_completed(futures):
+                future.result()
+    elapsed = time.perf_counter() - startTime
+    print(f"[{ticket_id}] Security rules configured in {elapsed:.2f} seconds.")
+
+    total_elapsed = time.perf_counter() - total_start
+    print(f"[{ticket_id}] Full execution completed in {total_elapsed:.2f} seconds.")
+
+# if __name__ == "__main__":
+#     main()
+
+main()
+
+
+
+
+
+
+
+
+
+
+
+{
+  "changed": false,
+  "rc": 1,
+  "stdout": "[8989898] Starting script execution.\nGon Get API Key.\nUsername: t3-admin, password: Px3Kx[8SxN\nTrying to get. URL is 'https://100.66.31.9/api'\n",
+  "stdout_lines": [
+    "[8989898] Starting script execution.",
+    "Gon Get API Key.",
+    "Username: t3-admin, password: Px3Kx[8SxN",
+    "Trying to get. URL is 'https://100.66.31.9/api'"
+  ],
+  "stderr": "Traceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 174, in _new_conn\n    conn = connection.create_connection(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 95, in create_connection\n    raise err\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 85, in create_connection\n    sock.connect(sa)\nOSError: [Errno 101] Network is unreachable\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 715, in urlopen\n    httplib_response = self._make_request(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 404, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 1060, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 363, in connect\n    self.sock = conn = self._new_conn()\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 186, in _new_conn\n    raise NewConnectionError(\nurllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 667, in send\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 801, in urlopen\n    retries = retries.increment(\n  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/retry.py\", line 594, in increment\n    raise MaxRetryError(_pool, url, error or ResponseError(cause))\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 67, in get_api_key\n    response = requests.get(url, params=params, verify=False)\n  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 73, in get\n    return request(\"get\", url, params=params, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 59, in request\n    return session.request(method=method, url=url, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 700, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 177, in <module>\n    main()\n  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 105, in main\n    api_key = get_api_key(palo_ip, username, password)\n  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 82, in get_api_key\n    raise Exception(f\"An error occurred during the API Key retreival from device {palo_ip}: {e}\")\nException: An error occurred during the API Key retreival from device 100.66.31.9: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))\n",
+  "stderr_lines": [
+    "Traceback (most recent call last):",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 174, in _new_conn",
+    "    conn = connection.create_connection(",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 95, in create_connection",
+    "    raise err",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/connection.py\", line 85, in create_connection",
+    "    sock.connect(sa)",
+    "OSError: [Errno 101] Network is unreachable",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 715, in urlopen",
+    "    httplib_response = self._make_request(",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 404, in _make_request",
+    "    self._validate_conn(conn)",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 1060, in _validate_conn",
+    "    conn.connect()",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 363, in connect",
+    "    self.sock = conn = self._new_conn()",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connection.py\", line 186, in _new_conn",
+    "    raise NewConnectionError(",
+    "urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 667, in send",
+    "    resp = conn.urlopen(",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/connectionpool.py\", line 801, in urlopen",
+    "    retries = retries.increment(",
+    "  File \"/usr/local/lib/python3.9/site-packages/urllib3/util/retry.py\", line 594, in increment",
+    "    raise MaxRetryError(_pool, url, error or ResponseError(cause))",
+    "urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    "  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 67, in get_api_key",
+    "    response = requests.get(url, params=params, verify=False)",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 73, in get",
+    "    return request(\"get\", url, params=params, **kwargs)",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/api.py\", line 59, in request",
+    "    return session.request(method=method, url=url, **kwargs)",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 589, in request",
+    "    resp = self.send(prep, **send_kwargs)",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/sessions.py\", line 703, in send",
+    "    r = adapter.send(request, **kwargs)",
+    "  File \"/usr/local/lib/python3.9/site-packages/requests/adapters.py\", line 700, in send",
+    "    raise ConnectionError(e, request=request)",
+    "requests.exceptions.ConnectionError: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    "  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 177, in <module>",
+    "    main()",
+    "  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 105, in main",
+    "    api_key = get_api_key(palo_ip, username, password)",
+    "  File \"/root/.ansible/tmp/ansible-tmp-1745918651.116993-150-100024587876385/main.py\", line 82, in get_api_key",
+    "    raise Exception(f\"An error occurred during the API Key retreival from device {palo_ip}: {e}\")",
+    "Exception: An error occurred during the API Key retreival from device 100.66.31.9: HTTPSConnectionPool(host='100.66.31.9', port=443): Max retries exceeded with url: /api?type=keygen&user=t3-admin&password=Px3Kx%5B8SxN (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0fca62b6d0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))"
+  ],
+  "msg": "non-zero return code",
+  "exception": "NoneType: None\n",
+  "_ansible_no_log": false,
+  "_ansible_delegated_vars": {
+    "ansible_host": "10.160.2.22",
+    "ansible_port": null,
+    "ansible_user": "tier3.global.ip"
+  }
+}
