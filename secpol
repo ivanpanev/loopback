@@ -1,36 +1,17 @@
-  # 7a. Prepare /tmp/palo_scripts on remote (only when remote)
-  - name: Ensure script folder exists on {{ nb_jumphost }}
-    file:
-      path: /tmp/palo_scripts
-      state: directory
-      mode: '0755'
-    delegate_to: "{{ nb_jumphost }}"
-    when: nb_jumphost != 'localhost'
+- name: Test TCP 443 reachability from {{ nb_jumphost }}
+  wait_for:
+    host: "{{ nb_primary_ip }}"
+    port: 443
+    timeout: 5
+    state: started          # succeed when the port is open
+  delegate_to: "{{ nb_jumphost }}"
 
-  # 7b. Copy every *.py helper to the remote jumphost
-  - name: Copy Python helper files to {{ nb_jumphost }}
-    copy:
-      src: "{{ item }}"
-      dest: "/tmp/palo_scripts/{{ item | basename }}"
-      mode: '0755'
-    loop: "{{ lookup('fileglob', scripts_dir + '/*.py', wantlist=True) }}"
-    delegate_to: "{{ nb_jumphost }}"
-    when: nb_jumphost != 'localhost'
-
-  # 7c. Execute main.py
-  - name: Run main.py on {{ nb_jumphost }}
-    command: >
-      python3 {{
-        (nb_jumphost == 'localhost')
-        | ternary(scripts_dir + '/main.py', '/tmp/palo_scripts/main.py')
-      }}
-    delegate_to: "{{ nb_jumphost }}"
-    environment:
-      EXTRA_VARS: "{{ extra_vars_json }}"
-    register: python_result
-
-  # 7d. Optional debug of script output
-  - name: Show script stdout
-    debug:
-      var: python_result.stdout_lines
-    when: show_extra_vars | default(true)
+- name: Try a real API key-gen request
+  uri:
+    url: "https://{{ nb_primary_ip }}/api/?type=keygen&user={{ api_user }}&password={{ api_pass }}"
+    validate_certs: no
+    return_content: yes
+    status_code: 200
+  delegate_to: "{{ nb_jumphost }}"
+  register: api_ping
+  failed_when: "'<response status=\"success\"' not in api_ping.content"
